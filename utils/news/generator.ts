@@ -1,5 +1,5 @@
 import { CollectedNewsResult } from './collector'
-import { mdLiteToHtml, estimateReadingMinutes, extractExcerpt } from '@/utils/markdown'
+import { mdLiteToHtml, estimateReadingMinutes, extractExcerpt, formatReadableParagraphs } from '@/utils/markdown'
 import { generateNanoBananaImages } from './imageGenerator'
 
 export interface AutoPostOptions {
@@ -29,9 +29,40 @@ export interface GeneratedPostResult {
   topKeywords: string[]
 }
 
-/**
- * Gemini API를 이용한 맞춤 옵션 반영 SEO 포스트 생성 (나노바나나 AI 이미지 통합)
- */
+function generateHashtags(topic: string, keywords: string[], parsedJson?: any): string {
+  const candidateSet = new Set<string>()
+
+  const topicWords = topic.replace(/[^\w\s가-힣]/g, ' ').split(/\s+/).filter((w) => w.length >= 2)
+  topicWords.forEach((w) => candidateSet.add(w))
+
+  if (keywords && keywords.length > 0) {
+    keywords.forEach((k) => {
+      const clean = k.replace(/[^\w가-힣]/g, '').trim()
+      if (clean.length >= 2) candidateSet.add(clean)
+    })
+  }
+
+  if (parsedJson) {
+    ;['소제목 1', '소제목 2', '소제목 3', '소제목 4'].forEach((key) => {
+      if (parsedJson[key]) {
+        const words = parsedJson[key]
+          .replace(/[^\w\s가-힣]/g, ' ')
+          .split(/\s+/)
+          .filter((w: string) => w.length >= 2 && !/^(완벽|가이드|분석|전망|소개|관련|핵심|장점|활용|파급|효과)$/.test(w))
+        words.forEach((w: string) => candidateSet.add(w))
+      }
+    })
+  }
+
+  const defaultExts = ['시장전망', '기술혁신', '트렌드분석', '핵심요약', '비즈니스전략', '정책분석', '경제전망']
+  defaultExts.forEach((e) => candidateSet.add(e))
+
+  const tags = Array.from(candidateSet)
+    .slice(0, 10)
+    .map((t) => `#${t}`)
+  return tags.join(' ')
+}
+
 async function generateWithGemini(
   newsData: CollectedNewsResult,
   options: AutoPostOptions,
@@ -47,13 +78,10 @@ async function generateWithGemini(
   const subKey3 = keywordsList[3] || `${options.topic} 실전 활용`
   const subKey4 = keywordsList[4] || `${options.topic} 파급 효과`
 
-  // 1. 세부 옵션 지침 구성
   const toneRule = options.tone ? `- 글 분위기 (Tone): '${options.tone}' 어조와 문체로 작성하세요.` : ''
   const audienceRule = options.targetAudience ? `- 대상 독자 (Target Audience): '${options.targetAudience}' 독자층을 염두에 두고 맞춤형 용어와 어조로 작성하세요.` : ''
-  const wordCountRule = options.wordCount ? `- 목표 단어 수 (Word Count): 약 ${options.wordCount}단어 (공백 제외 약 ${options.wordCount * 3.5}자 이상)로 풍부하게 서술하세요.` : ''
-  const referenceRule = options.referenceUrls && options.referenceUrls.length > 0
-    ? `- 참고 웹페이지 링크:\n  ${options.referenceUrls.join('\n  ')}\n  위 참고 URL들의 핵심 인사이트 및 주요 정보를 본문 분석에 충실히 반영하세요.`
-    : ''
+  const wordCountRule = options.wordCount ? `- 목표 단어 수 (Word Count): 약 ${options.wordCount}단어 (공백 제외 약 ${Math.round(options.wordCount * 3.5)}자 이상)로 풍부하게 작성하세요.` : ''
+  const referenceRule = options.referenceUrls && options.referenceUrls.length > 0 ? `- 참고 URL: ${options.referenceUrls.join(', ')}` : ''
   const customRule = options.customInstructions ? `- 추가 필수 지시사항 (Custom Instructions): ${options.customInstructions} (★ 이 지침을 최우선으로 반영할 것)` : ''
 
   const prompt = `
@@ -76,6 +104,7 @@ ${audienceRule}
 ${wordCountRule}
 ${referenceRule}
 ${customRule}
+- ★ [가독성 필수 지침]: 각 문단("1문단", "2문단", "3문단", "4문단", "종합 및 의견")은 절대로 긴 글로 통째로 뭉쳐서 작성하지 마세요. 반드시 2~3문장마다 줄바꿈(\n\n)을 넣어 읽기 쉬운 소문단 형태로 나누어 서술해야 합니다.
 
 [필수 지침 - JSON 출력 구조]:
 아래 11개 키를 포함하는 순수한 JSON 형식으로 출력하세요 (추가 설명/마크다운 백틱 없이 순수 JSON만 출력):
@@ -86,16 +115,16 @@ ${customRule}
   "소제목 2": "${subKey2} 관련 매력적인 소제목",
   "소제목 3": "${subKey3} 관련 매력적인 소제목",
   "소제목 4": "${subKey4} 관련 매력적인 소제목",
-  "1문단": "소제목1 관련 딥다이브 분석, 배경, 구체적 예시, 시사점 포함",
-  "2문단": "소제목2 관련 딥다이브 분석, 기술적 비교, 실전 장점 포함",
-  "3문단": "소제목3 관련 딥다이브 분석, 활용 사례, 비즈니스 가치 포함",
-  "4문단": "소제목4 관련 딥다이브 분석, 시장 영향력, 독자 실행 가이드 포함",
-  "종합 및 의견": "전체 내용을 종합 정리하고 향후 전망 및 전문가 의견 제시"
+  "1문단": "소제목1 관련 딥다이브 분석 (2~3문장마다 \n\n으로 줄바꿈하여 소문단 분할)",
+  "2문단": "소제목2 관련 딥다이브 분석 (2~3문장마다 \n\n으로 줄바꿈하여 소문단 분할)",
+  "3문단": "소제목3 관련 딥다이브 분석 (2~3문장마다 \n\n으로 줄바꿈하여 소문단 분할)",
+  "4문단": "소제목4 관련 딥다이브 분석 (2~3문장마다 \n\n으로 줄바꿈하여 소문단 분할)",
+  "종합 및 의견": "전체 내용을 종합 정리하고 향후 전망 및 전문가 의견 제시 (2~3문장마다 \n\n으로 줄바꿈)"
 }
 `.trim()
 
   try {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -107,58 +136,63 @@ ${customRule}
       const data = await res.json()
       let text = data.candidates?.[0]?.content?.parts?.[0]?.text
       if (text) {
-        text = text.replace(/```json/gi, '').replace(/```/g, '').trim()
+        text = text.replace(/\u0060\u0060\u0060json/gi, '').replace(/\u0060\u0060\u0060/g, '').trim()
         const parsed = JSON.parse(text)
 
         const title = parsed['제목'] || `[SEO] ${options.topic} 완벽 가이드`
         const excerpt = parsed['요약글'] || `${options.topic}에 관한 심층 분석 리포트입니다.`
 
-        const body1Text = parsed['1문단'] || ''
-        const body2Text = parsed['2문단'] || ''
-        const body3Text = parsed['3문단'] || ''
+        const body1Text = formatReadableParagraphs(parsed['1문단'] || '')
+        const body2Text = formatReadableParagraphs(parsed['2문단'] || '')
+        const body3Text = formatReadableParagraphs(parsed['3문단'] || '')
+        const body4Text = formatReadableParagraphs(parsed['4문단'] || '')
+        const conclusionText = formatReadableParagraphs(parsed['종합 및 의견'] || '')
 
-        // 2. 본문 문단 작성이 완료된 후 문맥 100% 매칭 나노바나나 AI 이미지 생성
+        const hashtags = generateHashtags(options.topic, keywordsList, parsed)
+
+        // ★ [핵심] 완성된 본문 텍스트 전체를 AI Visual Director가 읽고 이해한 후 100% 매칭 3개 프롬프트를 뽑아 이미지 생성
+        console.log('[AI Post Generator] Analyzing generated article text to create 100% context-matching image prompts...')
         const images = await generateNanoBananaImages(
           options.topic,
           keywordsList,
-          options.nanoBananaApiKey,
+          apiKey,
           options.imageModel,
           options.nanoBananaEndpoint,
           {
-            headerText: body1Text,
-            body1Text: body2Text,
-            body2Text: body3Text,
+            title,
+            excerpt,
+            body1Text,
+            body2Text,
+            body4Text,
           }
         )
 
         const contentMarkdown = `
-> **요약**: ${excerpt}
-
 ![${options.topic} 대표 이미지](${images.headerImage})
 
 ## ${parsed['소제목 1']}
 
-${parsed['1문단']}
+${body1Text}
 
 ## ${parsed['소제목 2']}
 
 ![${parsed['소제목 2']} 상세 이미지](${images.bodyImage1})
 
-${parsed['2문단']}
+${body2Text}
 
 ## ${parsed['소제목 3']}
 
-${parsed['3문단']}
+${body3Text}
 
 ## ${parsed['소제목 4']}
 
-![${parsed['소제목 4']} 기술 전망 이미지](${images.bodyImage2})
+![${parsed['소제목 4']} 상세 이미지](${images.bodyImage2})
 
-${parsed['4문단']}
+${body4Text}
 
-## 종합 및 시사점
+## 5. 결론 및 전문가 제언
 
-${parsed['종합 및 의견']}
+${conclusionText}
 
 ${
   options.cta?.text && options.cta?.url
@@ -174,82 +208,67 @@ ${
 
 ---
 
+${hashtags}
+
+---
+
 ### 🎨 생성 이미지 AI 프롬프트 및 API 요청 스키마 (Prompts & API Schemas)
 
 본 포스트의 3개 이미지 생성 시 나노바나나/제미나이 AI 엔진에 전달된 100% 문맥 일치 영문 실사 프롬프트 및 **실제 전송된 정식 API 요청 스키마 페이로드(Request Payload Schema)**입니다.
 
 #### 1. 대표 썸네일 이미지 프롬프트 (Header Visual)
-\`\`\`text
+\u0060\u0060\u0060text
 ${images.headerPrompt || ''}
-\`\`\`
+\u0060\u0060\u0060
 
 > **⚙️ 1번 이미지 생성 시 전송된 API 요청 스키마 (Header Schema Payload)**
-\`\`\`json
+\u0060\u0060\u0060json
 ${images.headerSchema || ''}
-\`\`\`
+\u0060\u0060\u0060
 
 #### 2. 기술 메커니즘 이미지 프롬프트 (Section 2 Visual)
-\`\`\`text
+\u0060\u0060\u0060text
 ${images.body1Prompt || ''}
-\`\`\`
+\u0060\u0060\u0060
 
 > **⚙️ 2번 이미지 생성 시 전송된 API 요청 스키마 (Section 2 Schema Payload)**
-\`\`\`json
+\u0060\u0060\u0060json
 ${images.body1Schema || ''}
-\`\`\`
+\u0060\u0060\u0060
 
 #### 3. 미래 파급력 이미지 프롬프트 (Section 3 Visual)
-\`\`\`text
+\u0060\u0060\u0060text
 ${images.body2Prompt || ''}
-\`\`\`
+\u0060\u0060\u0060
 
 > **⚙️ 3번 이미지 생성 시 전송된 API 요청 스키마 (Section 3 Schema Payload)**
-\`\`\`json
+\u0060\u0060\u0060json
 ${images.body2Schema || ''}
-\`\`\`
+\u0060\u0060\u0060
 `.trim()
 
         return { title, excerpt, contentMarkdown }
       }
     }
-  } catch (error) {
-    console.error('Gemini API Make-prompt generation error:', error)
+  } catch (e) {
+    console.error('Failed to generate with Gemini:', e)
   }
 
   return null
 }
 
-function cleanNounPhrase(str: string, fallback: string): string {
-  if (!str || typeof str !== 'string') return fallback
-  let clean = str.replace(/^(웃고|울상|해외서|국내서|밝혀|전해|이어|따르면|말해|넘어)$/gi, '').trim()
-  if (!clean || clean.length < 2) return fallback
-  if (clean.length > 20) {
-    const words = clean
-      .replace(/[^\w\s가-힣]/g, ' ')
-      .split(/\s+/)
-      .filter((w) => w.length >= 2 && !/^(들어갔다|기대되고|있다|초읽기에|서비스가|분석|대비|위해|통해)$/.test(w))
-    clean = words.slice(0, 3).join(' ')
-  }
-  return clean || fallback
-}
-
-function extractShortTopicName(fullTopic: string): string {
-  if (!fullTopic) return '기술 혁신 이슈'
-  const clean = fullTopic.replace(/[^\w\s가-힣]/g, ' ').trim()
-  const words = clean.split(/\s+/).filter((w) => w.length >= 2 && !/^(있다|있으며|받고|상승했다|의미한다|들어갔다|기대되고|분석|포스트|관련|서비스가|초읽기에)$/.test(w))
-  if (words.length >= 2) {
-    return words.slice(0, 3).join(' ')
-  }
-  return clean.slice(0, 20) || '기술 혁신 이슈'
-}
-
-export async function generateSeoPost(
+export async function generateAutoPost(
   newsData: CollectedNewsResult,
   options: AutoPostOptions
 ): Promise<GeneratedPostResult> {
-  const activeApiKey = options.nanoBananaApiKey || process.env.GEMINI_API_KEY || ''
-
   let postData: { title: string; excerpt: string; contentMarkdown: string } | null = null
+
+  const activeApiKey =
+    options.nanoBananaApiKey ||
+    process.env.GEMINI_API_KEY ||
+    process.env.NEXT_PUBLIC_GEMINI_API_KEY ||
+    process.env.NANOBANANA_API_KEY ||
+    ''
 
   if (activeApiKey) {
     postData = await generateWithGemini(newsData, options, activeApiKey)
@@ -273,12 +292,26 @@ export async function generateSeoPost(
       ? `'${options.targetAudience}' 독자층을 위해 ${options.topic} 이슈를 24시간 분석한 맞춤 리포트입니다.`
       : `${options.topic} 이슈의 최근 24시간 실시간 트렌드 분석과 깊이 있는 정보를 제공하는 전문 SEO 포스트입니다.`
 
+    const hashtags = generateHashtags(options.topic, keywordsList)
+
+    const newsSummaryText = newsData.articles.slice(0, 4).map((a) => `- ${a.title} (${a.source})`).join('\n')
+    const sec1Text = `최근 24시간 동안 ${options.topic} 분야는 뜨거운 관심을 받고 있습니다.\n\n주요 뉴스 요약:\n${newsSummaryText}`
+    const sec2Text = `${mainKeyword}의 핵심 우위는 탁월한 효율성과 혁신적인 스마트 기술 접근 방식에 있습니다. ${subKey2} 관련 기술적 차별성과 고성능 인프라가 적용됩니다.`
+    const sec4Text = `앞으로 ${options.topic} 관련 생태계 및 ${subKey4} 파급 효과는 글로벌 시장에서 더욱 급격하게 성장할 것으로 예상됩니다.`
+
     const images = await generateNanoBananaImages(
       options.topic,
       keywordsList,
-      options.nanoBananaApiKey,
+      activeApiKey,
       options.imageModel,
-      options.nanoBananaEndpoint
+      options.nanoBananaEndpoint,
+      {
+        title,
+        excerpt,
+        body1Text: sec1Text,
+        body2Text: sec2Text,
+        body4Text: sec4Text,
+      }
     )
 
     const contentMarkdown = `
@@ -288,10 +321,7 @@ export async function generateSeoPost(
 
 ## 1. 24시간 실시간 뉴스 핵심 쟁점 및 ${subKey1}
 
-최근 24시간 동안 **${options.topic}** 분야는 뜨거운 관심을 받고 있습니다.
-
-### 주요 뉴스 요약:
-${newsData.articles.slice(0, 4).map((a) => `- [${a.title}](${a.link}) (${a.source})`).join('\n')}
+${sec1Text}
 
 ${options.customInstructions ? `\n> **추가 지시 반영**: ${options.customInstructions}\n` : ''}
 
@@ -299,7 +329,7 @@ ${options.customInstructions ? `\n> **추가 지시 반영**: ${options.customIn
 
 ![${subKey2} 구조 인포그래픽](${images.bodyImage1})
 
-**${mainKeyword}**의 핵심 우위는 탁월한 효율성과 혁신적인 접근 방식에 있습니다.
+${sec2Text}
 
 ${options.referenceUrls && options.referenceUrls.length > 0 ? `\n### 참고 자료:\n${options.referenceUrls.map((url) => `- [참고 링크](${url})`).join('\n')}\n` : ''}
 
@@ -311,7 +341,7 @@ ${options.referenceUrls && options.referenceUrls.length > 0 ? `\n### 참고 자�
 
 ![${subKey4} 미래 비주얼](${images.bodyImage2})
 
-앞으로 **${options.topic}** 관련 생태계는 더욱 급격하게 성장할 것으로 예상됩니다.
+${sec4Text}
 
 ## 5. 결론 및 전문가 제언
 
@@ -331,39 +361,43 @@ ${
 
 ---
 
+${hashtags}
+
+---
+
 ### 🎨 생성 이미지 AI 프롬프트 및 API 요청 스키마 (Prompts & API Schemas)
 
 본 포스트의 3개 이미지 생성 시 나노바나나/제미나이 AI 엔진에 전달된 100% 문맥 일치 영문 실사 프롬프트 및 **실제 전송된 정식 API 요청 스키마 페이로드(Request Payload Schema)**입니다.
 
 #### 1. 대표 썸네일 이미지 프롬프트 (Header Visual)
-\`\`\`text
+\u0060\u0060\u0060text
 ${images.headerPrompt || ''}
-\`\`\`
+\u0060\u0060\u0060
 
 > **⚙️ 1번 이미지 생성 시 전송된 API 요청 스키마 (Header Schema Payload)**
-\`\`\`json
+\u0060\u0060\u0060json
 ${images.headerSchema || ''}
-\`\`\`
+\u0060\u0060\u0060
 
 #### 2. 기술 메커니즘 이미지 프롬프트 (Section 2 Visual)
-\`\`\`text
+\u0060\u0060\u0060text
 ${images.body1Prompt || ''}
-\`\`\`
+\u0060\u0060\u0060
 
 > **⚙️ 2번 이미지 생성 시 전송된 API 요청 스키마 (Section 2 Schema Payload)**
-\`\`\`json
+\u0060\u0060\u0060json
 ${images.body1Schema || ''}
-\`\`\`
+\u0060\u0060\u0060
 
 #### 3. 미래 파급력 이미지 프롬프트 (Section 3 Visual)
-\`\`\`text
+\u0060\u0060\u0060text
 ${images.body2Prompt || ''}
-\`\`\`
+\u0060\u0060\u0060
 
 > **⚙️ 3번 이미지 생성 시 전송된 API 요청 스키마 (Section 3 Schema Payload)**
-\`\`\`json
+\u0060\u0060\u0060json
 ${images.body2Schema || ''}
-\`\`\`
+\u0060\u0060\u0060
 `.trim()
 
     postData = { title, excerpt, contentMarkdown }
@@ -384,6 +418,8 @@ ${images.body2Schema || ''}
   }
 }
 
+export const generateSeoPost = generateAutoPost;
+
 function inferCategorySlug(topic: string, keywords: string[]): string {
   const topicLower = (topic + ' ' + keywords.join(' ')).toLowerCase()
 
@@ -400,4 +436,14 @@ function inferCategorySlug(topic: string, keywords: string[]): string {
   if (/performance|성능|최적화/i.test(topicLower)) return 'performance'
 
   return 'architecture'
+}
+
+function extractShortTopicName(topic: string): string {
+  if (!topic) return 'IT 이슈'
+  const cleaned = topic.replace(/\([^)]*\)/g, '').trim()
+  const words = cleaned.split(/\s+/)
+  if (words.length > 0 && words[0].length >= 2) {
+    return words[0]
+  }
+  return cleaned || 'IT 이슈'
 }

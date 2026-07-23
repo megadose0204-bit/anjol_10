@@ -6,6 +6,45 @@ import Link from 'next/link'
 import { createClient } from '@/utils/supabase/client'
 
 /* ------------------------------------------------------------------ */
+/*  HTML5 Canvas Image Compression Helper                              */
+/* ------------------------------------------------------------------ */
+async function compressBase64Image(dataUrl: string, maxWidth = 1000, quality = 0.75): Promise<string> {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined') {
+      resolve(dataUrl)
+      return
+    }
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      let width = img.width
+      let height = img.height
+
+      if (width > maxWidth) {
+        height = Math.round((height * maxWidth) / width)
+        width = maxWidth
+      }
+
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        resolve(dataUrl)
+        return
+      }
+
+      ctx.drawImage(img, 0, 0, width, height)
+      const compressedDataUrl = canvas.toDataURL('image/jpeg', quality)
+      resolve(compressedDataUrl)
+    }
+    img.onerror = () => resolve(dataUrl)
+    img.src = dataUrl
+  })
+}
+
+/* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 interface Category {
@@ -108,6 +147,8 @@ export default function PostDetailPage() {
   const [likeCount, setLikeCount] = useState(0)
   const [hasLiked, setHasLiked] = useState(false)
   const [likeBusy, setLikeBusy] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [compressing, setCompressing] = useState(false)
 
   // 고화질 이미지 라이트박스 팝업 상태
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
@@ -400,8 +441,91 @@ export default function PostDetailPage() {
                 )}
               </div>
 
-              {/* 포스트 관리 (수정 / 삭제) 버튼 */}
+              {/* 포스트 관리 (본문 복사 / 수정 / 삭제) 버튼 */}
               <div className="flex items-center gap-2">
+                <button
+                  disabled={compressing}
+                  onClick={async () => {
+                    if (!post || compressing) return
+                    try {
+                      setCompressing(true)
+                      let rawContent = post.content || ''
+
+                      // ★ 본문 복사 전 하단 프롬프트 및 API 요청 스키마 구역 전면 정제 (티스토리/블로그 붙여넣기 전용)
+                      const promptSectionIdx = rawContent.search(/(<h[1-6][^>]*>[^<]*🎨\s*생성\s*이미지|<hr[^>]*>\s*<h[1-6][^>]*>[^<]*🎨|🎨\s*생성\s*이미지\s*AI\s*프롬프트)/i)
+                      if (promptSectionIdx !== -1) {
+                        let cleanCutIdx = promptSectionIdx
+                        const priorHr = rawContent.lastIndexOf('<hr', promptSectionIdx)
+                        if (priorHr !== -1 && promptSectionIdx - priorHr < 100) {
+                          cleanCutIdx = priorHr
+                        }
+                        rawContent = rawContent.slice(0, cleanCutIdx).trim()
+                      }
+                      
+                      // 1. 인라인 자바스크립트(onclick=...) 정제
+                      rawContent = rawContent.replace(/onclick="[^"]*"/gi, '')
+
+                      // 2. Base64 이미지 바이너리 추출 및 HTML5 Canvas 스마트 압축 (4MB -> 250KB)
+                      const dataUrlMatches: string[] = []
+                      rawContent.replace(/data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/g, (m) => {
+                        dataUrlMatches.push(m)
+                        return m
+                      })
+
+                      let compressedContent = rawContent
+
+                      if (dataUrlMatches.length > 0) {
+                        for (let idx = 0; idx < dataUrlMatches.length; idx++) {
+                          const originalSrc = dataUrlMatches[idx]
+                          const compressedSrc = await compressBase64Image(originalSrc, 1000, 0.75)
+                          compressedContent = compressedContent.split(originalSrc).join(compressedSrc)
+                        }
+                      }
+
+                      const plainText = compressedContent
+                        .replace(/<figcaption[^>]*>.*?<\/figcaption>/gi, '')
+                        .replace(/<[^>]+>/g, '')
+                        .replace(/\n{3,}/g, '\n\n')
+                        .trim()
+
+                      if (navigator.clipboard && window.ClipboardItem) {
+                        const htmlBlob = new Blob([compressedContent], { type: 'text/html' })
+                        const textBlob = new Blob([plainText], { type: 'text/plain' })
+                        const item = new ClipboardItem({
+                          'text/html': htmlBlob,
+                          'text/plain': textBlob,
+                        })
+                        await navigator.clipboard.write([item])
+                      } else {
+                        await navigator.clipboard.writeText(compressedContent)
+                      }
+
+                      setCompressing(false)
+                      setCopied(true)
+                      setTimeout(() => setCopied(false), 3000)
+                    } catch (err) {
+                      console.error('[Copy Error]:', err)
+                      setCompressing(false)
+                      try {
+                        const simpleText = (post.content || '').replace(/<[^>]+>/g, '').trim()
+                        await navigator.clipboard.writeText(simpleText)
+                        setCopied(true)
+                        setTimeout(() => setCopied(false), 3000)
+                      } catch {
+                        alert('본문 복사 중 오류가 발생했습니다.')
+                      }
+                    }
+                  }}
+                  className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer shadow-sm ${
+                    compressing
+                      ? 'bg-amber-500 text-white animate-pulse'
+                      : copied
+                      ? 'bg-emerald-600 text-white shadow-emerald-200 font-extrabold'
+                      : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-100'
+                  }`}
+                >
+                  {compressing ? '⏳ 이미지 750KB 압축 중...' : copied ? '✓ 본문 & 이미지 복사 완료! (Ctrl+V로 붙여넣으세요)' : '📋 본문 복사하기'}
+                </button>
                 <Link
                   href={`/posts/${post.id}/edit`}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 text-xs font-semibold rounded-lg border border-slate-200 transition-all cursor-pointer no-underline shadow-sm"
@@ -443,13 +567,7 @@ export default function PostDetailPage() {
               </div>
             )}
 
-            {/* Cover */}
-            <div
-              className="post-cover mb-8"
-              style={{ background: coverGradient }}
-            >
-              <span>{categories[0]?.name ?? 'DevFlow'}</span>
-            </div>
+            {/* Cover Box Removed - Real Photorealistic AI Header Image render in post-content */}
 
             {/* Content (클릭 시 라이트박스 팝업 연동) */}
             <div

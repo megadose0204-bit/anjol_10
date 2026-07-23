@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/utils/supabase/client'
+import CategoryManagementModal from './_components/CategoryManagementModal'
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -25,6 +26,7 @@ interface Post {
   title: string
   excerpt: string
   published_at: string
+  reading_minutes?: number
   author_id: number
   author: Author | null
   categories: Category[]
@@ -32,9 +34,6 @@ interface Post {
 
 const POSTS_PER_PAGE = 9
 
-/* ------------------------------------------------------------------ */
-/*  Helper: 날짜 포맷                                                  */
-/* ------------------------------------------------------------------ */
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr)
   const now = new Date()
@@ -50,54 +49,45 @@ function formatDate(dateStr: string): string {
   return `${month}월 ${day}일`
 }
 
-/* ------------------------------------------------------------------ */
-/*  Helper: 아바타 이니셜                                               */
-/* ------------------------------------------------------------------ */
 function getInitials(name: string): string {
-  const parts = name.split(' ')
-  if (parts.length >= 2) {
-    return (parts[0][0] + parts[1][0]).toUpperCase()
-  }
+  if (!name) return 'AB'
+  const parts = name.trim().split(' ')
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase()
   return name.slice(0, 2).toUpperCase()
 }
 
-/* ------------------------------------------------------------------ */
-/*  Main Component                                                     */
-/* ------------------------------------------------------------------ */
 export default function HomePage() {
   const supabase = useMemo(() => createClient(), [])
 
   const [categories, setCategories] = useState<Category[]>([])
   const [posts, setPosts] = useState<Post[]>([])
   const [totalCount, setTotalCount] = useState(0)
-  const [activeCategory, setActiveCategory] = useState<string | null>(null)
-  const [currentPage, setCurrentPage] = useState(1)
   const [loading, setLoading] = useState(true)
+
+  const [activeCategory, setActiveCategory] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [searchInput, setSearchInput] = useState('')
+
+  const [currentPage, setCurrentPage] = useState(1)
+  const [isManageModalOpen, setIsManageModalOpen] = useState(false)
   const [userEmail, setUserEmail] = useState<string | null>(null)
 
   const categoriesRef = useRef<Category[]>([])
   categoriesRef.current = categories
 
-  const totalPages = Math.max(1, Math.ceil(totalCount / POSTS_PER_PAGE))
-
-  /* ---- Fetch categories ---- */
   useEffect(() => {
     async function fetchCategories() {
       const { data } = await supabase
         .from('blog_categories')
         .select('*')
-        .order('name')
+        .order('id', { ascending: true })
+
       if (data) setCategories(data)
     }
     fetchCategories()
   }, [supabase])
 
-  /* ---- Auth state ---- */
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      setUserEmail(data.user?.email ?? null)
-    })
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       setUserEmail(session?.user?.email ?? null)
     })
@@ -108,102 +98,106 @@ export default function HomePage() {
   useEffect(() => {
     let ignore = false
     async function loadPosts() {
-      setLoading(true)
+      try {
+        setLoading(true)
 
-      const from = (currentPage - 1) * POSTS_PER_PAGE
-      const to = from + POSTS_PER_PAGE - 1
+        const from = (currentPage - 1) * POSTS_PER_PAGE
+        const to = from + POSTS_PER_PAGE - 1
 
-      // Build post IDs filter if category selected
-      let postIds: number[] | null = null
-      if (activeCategory) {
-        const cat = categoriesRef.current.find((c) => c.slug === activeCategory)
-        if (cat) {
-          const { data: pcData } = await supabase
-            .from('blog_post_categories')
-            .select('post_id')
-            .eq('category_id', cat.id)
-          postIds = pcData?.map((r) => r.post_id) ?? []
-        }
-      }
-
-      // Count
-      let countQuery = supabase
-        .from('blog_posts')
-        .select('*', { count: 'exact', head: true })
-      if (postIds !== null) {
-        if (postIds.length === 0) {
-          if (!ignore) {
-            setPosts([])
-            setTotalCount(0)
-            setLoading(false)
+        let postIds: number[] | null = null
+        if (activeCategory) {
+          const cat = categoriesRef.current.find((c) => c.slug === activeCategory)
+          if (cat) {
+            const { data: pcData } = await supabase
+              .from('blog_post_categories')
+              .select('post_id')
+              .eq('category_id', cat.id)
+            postIds = pcData?.map((r) => r.post_id) ?? []
           }
+        }
+
+        let countQuery = supabase
+          .from('blog_posts')
+          .select('id', { count: 'exact', head: true })
+        if (postIds !== null) {
+          if (postIds.length === 0) {
+            if (!ignore) {
+              setPosts([])
+              setTotalCount(0)
+              setLoading(false)
+            }
+            return
+          }
+          countQuery = countQuery.in('id', postIds)
+        }
+        if (searchQuery.trim()) {
+          countQuery = countQuery.ilike('title', `%${searchQuery.trim()}%`)
+        }
+        const { count } = await countQuery
+        if (ignore) return
+        setTotalCount(count ?? 0)
+
+        // ★ [핵심] 대용량 content 칼럼을 제외하고 라이트급 메타데이터만 쿼리 (Timeout 57014 방지)
+        let postsQuery = supabase
+          .from('blog_posts')
+          .select('id, title, excerpt, published_at, reading_minutes, author_id')
+          .order('published_at', { ascending: false })
+          .range(from, to)
+
+        if (postIds !== null) {
+          postsQuery = postsQuery.in('id', postIds)
+        }
+        if (searchQuery.trim()) {
+          postsQuery = postsQuery.ilike('title', `%${searchQuery.trim()}%`)
+        }
+        const { data: postsData } = await postsQuery
+        if (ignore) return
+
+        if (!postsData || postsData.length === 0) {
+          setPosts([])
+          setLoading(false)
           return
         }
-        countQuery = countQuery.in('id', postIds)
-      }
-      if (searchQuery.trim()) {
-        countQuery = countQuery.ilike('title', `%${searchQuery.trim()}%`)
-      }
-      const { count } = await countQuery
-      if (ignore) return
-      setTotalCount(count ?? 0)
 
-      // Fetch posts
-      let postsQuery = supabase
-        .from('blog_posts')
-        .select('*')
-        .order('published_at', { ascending: false })
-        .range(from, to)
-      if (postIds !== null) {
-        postsQuery = postsQuery.in('id', postIds)
-      }
-      if (searchQuery.trim()) {
-        postsQuery = postsQuery.ilike('title', `%${searchQuery.trim()}%`)
-      }
-      const { data: postsData } = await postsQuery
-      if (ignore) return
+        const authorIds = [...new Set(postsData.map((p) => p.author_id))].filter(Boolean)
+        const { data: authorsData } = await supabase
+          .from('blog_authors')
+          .select('*')
+          .in('id', authorIds.length > 0 ? authorIds : [-1])
+        const authorsMap = new Map(authorsData?.map((a) => [a.id, a]) ?? [])
 
-      if (!postsData || postsData.length === 0) {
-        setPosts([])
-        setLoading(false)
-        return
-      }
+        const fetchedPostIds = postsData.map((p) => p.id)
+        const { data: pcData } = await supabase
+          .from('blog_post_categories')
+          .select('post_id, category_id')
+          .in('post_id', fetchedPostIds)
 
-      // Fetch authors for these posts
-      const authorIds = [...new Set(postsData.map((p) => p.author_id))]
-      const { data: authorsData } = await supabase
-        .from('blog_authors')
-        .select('*')
-        .in('id', authorIds)
-      const authorsMap = new Map(authorsData?.map((a) => [a.id, a]) ?? [])
+        const catIds = [...new Set(pcData?.map((pc) => pc.category_id) ?? [])]
+        const { data: catsData } = await supabase
+          .from('blog_categories')
+          .select('*')
+          .in('id', catIds.length > 0 ? catIds : [-1])
+        const catsMap = new Map(catsData?.map((c) => [c.id, c]) ?? [])
 
-      // Fetch categories for these posts
-      const fetchedPostIds = postsData.map((p) => p.id)
-      const { data: pcData } = await supabase
-        .from('blog_post_categories')
-        .select('post_id, category_id')
-        .in('post_id', fetchedPostIds)
+        const postsWithRelations: Post[] = postsData.map((p) => {
+          const postCatIds =
+            pcData?.filter((pc) => pc.post_id === p.id).map((pc) => pc.category_id) ?? []
+          return {
+            ...p,
+            author: authorsMap.get(p.author_id) ?? null,
+            categories: postCatIds.map((cid) => catsMap.get(cid)).filter(Boolean) as Category[],
+          }
+        })
 
-      const catIds = [...new Set(pcData?.map((pc) => pc.category_id) ?? [])]
-      const { data: catsData } = await supabase
-        .from('blog_categories')
-        .select('*')
-        .in('id', catIds.length > 0 ? catIds : [-1])
-      const catsMap = new Map(catsData?.map((c) => [c.id, c]) ?? [])
-
-      const postsWithRelations: Post[] = postsData.map((p) => {
-        const postCatIds =
-          pcData?.filter((pc) => pc.post_id === p.id).map((pc) => pc.category_id) ?? []
-        return {
-          ...p,
-          author: authorsMap.get(p.author_id) ?? null,
-          categories: postCatIds.map((cid) => catsMap.get(cid)).filter(Boolean) as Category[],
+        if (!ignore) {
+          setPosts(postsWithRelations)
         }
-      })
-
-      if (!ignore) {
-        setPosts(postsWithRelations)
-        setLoading(false)
+      } catch (err) {
+        console.error('[Load Posts Error]:', err)
+      } finally {
+        if (!ignore) {
+          setLoading(false)
+        }
       }
     }
 
@@ -213,254 +207,276 @@ export default function HomePage() {
     }
   }, [supabase, currentPage, activeCategory, searchQuery])
 
-  /* ---- Category filter handler ---- */
   const handleCategoryClick = (slug: string | null) => {
     setActiveCategory(slug)
     setCurrentPage(1)
   }
 
-  /* ---- Search handler ---- */
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
+    setSearchQuery(searchInput)
     setCurrentPage(1)
   }
 
-  /* ---- Pagination ---- */
-  function getPaginationNumbers(): (number | '...')[] {
-    if (totalPages <= 5) {
-      return Array.from({ length: totalPages }, (_, i) => i + 1)
+  const totalPages = Math.ceil(totalCount / POSTS_PER_PAGE)
+
+  const getPaginationNumbers = () => {
+    const pages: (number | string)[] = []
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i)
+    } else {
+      pages.push(1)
+      if (currentPage > 3) pages.push('...')
+      const start = Math.max(2, currentPage - 1)
+      const end = Math.min(totalPages - 1, currentPage + 1)
+      for (let i = start; i <= end; i++) pages.push(i)
+      if (currentPage < totalPages - 2) pages.push('...')
+      pages.push(totalPages)
     }
-    const pages: (number | '...')[] = [1]
-    if (currentPage > 3) pages.push('...')
-    const start = Math.max(2, currentPage - 1)
-    const end = Math.min(totalPages - 1, currentPage + 1)
-    for (let i = start; i <= end; i++) pages.push(i)
-    if (currentPage < totalPages - 2) pages.push('...')
-    pages.push(totalPages)
     return pages
   }
 
-  /* ------------------------------------------------------------------ */
-  /*  Render                                                             */
-  /* ------------------------------------------------------------------ */
   return (
     <div className="flex flex-col min-h-screen">
       {/* =================== HEADER =================== */}
       <header className="sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-[var(--border)]">
         <div className="max-w-[1200px] mx-auto px-6 h-[60px] flex items-center justify-between gap-4">
-          {/* Logo */}
-          <Link href="/" className="text-xl font-black text-indigo-600 tracking-tight flex-shrink-0 no-underline">
+          <Link href="/" className="text-xl font-black text-indigo-600 no-underline">
             AutoBlog
           </Link>
 
-          {/* Search */}
-          <form onSubmit={handleSearch} className="hidden sm:flex items-center flex-1 max-w-[320px]">
-            <div className="relative w-full">
-              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
-              </svg>
-              <input
-                type="text"
-                placeholder="게시물 검색..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 text-sm bg-zinc-50 border border-[var(--border)] rounded-lg focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]/20 transition-all"
+          <form onSubmit={handleSearch} className="relative flex-1 max-w-[360px] hidden sm:block">
+            <input
+              type="text"
+              placeholder="게시물 검색..."
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              className="w-full h-9 pl-9 pr-4 text-xs bg-slate-100/80 border-0 rounded-full focus:outline-none focus:ring-2 focus:ring-indigo-500/30 text-slate-700 placeholder-slate-400"
+            />
+            <svg
+              className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
               />
-            </div>
+            </svg>
           </form>
 
-          {/* Nav Links */}
           <nav className="hidden md:flex items-center gap-6">
-            <Link href="/" className="text-sm font-medium text-[var(--primary)] border-b-2 border-[var(--primary)] pb-0.5 no-underline">탐색</Link>
+            <Link href="/" className="text-sm font-medium text-zinc-900 no-underline">탐색</Link>
             <Link href="/topics" className="text-sm font-medium text-zinc-600 hover:text-zinc-900 no-underline transition-colors">주제</Link>
             <Link href="/community" className="text-sm font-medium text-zinc-600 hover:text-zinc-900 no-underline transition-colors">커뮤니티</Link>
           </nav>
 
-          {/* Auth Buttons */}
           <div className="flex items-center gap-3 flex-shrink-0">
             <Link
               href="/write/ai-form"
-              className="text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 px-4 py-2 rounded-lg no-underline transition-colors flex items-center gap-1 shadow-sm"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-md shadow-indigo-200 transition-all hover:scale-105 no-underline"
             >
               <span>✨ AI 글쓰기</span>
             </Link>
             {userEmail ? (
-              <Link href="/auth" className="text-sm font-medium text-zinc-600 hover:text-zinc-900 no-underline transition-colors truncate max-w-[160px]">
+              <span className="text-xs font-semibold text-slate-600 bg-slate-100 px-3 py-1.5 rounded-full">
                 {userEmail}
-              </Link>
+              </span>
             ) : (
-              <>
-                <Link href="/auth" className="text-sm font-medium text-zinc-600 hover:text-zinc-900 no-underline transition-colors">로그인</Link>
-                <Link href="/auth" className="text-sm font-semibold text-white bg-zinc-900 hover:bg-zinc-800 px-4 py-2 rounded-lg no-underline transition-colors">회원가입</Link>
-              </>
+              <Link
+                href="/auth"
+                className="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 px-3 py-1.5 rounded-full no-underline transition-colors"
+              >
+                로그인
+              </Link>
             )}
           </div>
         </div>
       </header>
 
-      {/* =================== HERO =================== */}
-      <section className="py-14 text-center bg-gradient-to-b from-indigo-50/50 to-transparent">
-        <h1 className="text-3xl sm:text-4xl font-extrabold text-zinc-900 tracking-tight mb-3">
-          주제, 키워드, 참고링크를 제시하면
-        </h1>
-        <p className="text-base sm:text-lg text-zinc-600 max-w-xl mx-auto px-4 mb-6 font-medium leading-relaxed">
-          자동으로 검색엔진에 최적화된 블로그를 만들어 드립니다
-        </p>
-        <div className="flex items-center justify-center gap-3">
-          <Link
-            href="/write/ai-form"
-            className="inline-flex items-center gap-2 text-sm font-extrabold text-white bg-indigo-600 hover:bg-indigo-700 px-6 py-3 rounded-xl no-underline shadow-md hover:shadow-lg transition-all"
-          >
-            <span>🤖 실시간 핫뉴스 검색 분석 및 AI 자동블로그 작성하기</span>
-          </Link>
+      {/* =================== HERO BANNER =================== */}
+      <section className="bg-gradient-to-b from-indigo-50/60 to-white py-12 px-6 border-b border-slate-100 text-center">
+        <div className="max-w-[800px] mx-auto space-y-4">
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight leading-tight">
+            주제, 키워드, 참고링크를 제시하면
+          </h1>
+          <p className="text-base text-slate-600 font-medium">
+            자동으로 검색엔진에 최적화된 블로그를 만들어 드립니다
+          </p>
+
+          <div className="pt-2">
+            <Link
+              href="/write/ai-form"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs sm:text-sm rounded-2xl shadow-lg shadow-indigo-200 transition-all hover:scale-105 no-underline"
+            >
+              <span>🚍 실시간 핫뉴스 검색 분석 및 AI 자동블로그 작성하기</span>
+            </Link>
+          </div>
         </div>
       </section>
 
       {/* =================== MAIN CONTENT =================== */}
-      <main className="flex-1 max-w-[1200px] w-full mx-auto px-6 pb-16">
-        {/* Category Filters */}
-        <div className="flex items-center gap-2 mb-8 overflow-x-auto pb-2 scrollbar-hide">
+      <main className="flex-1 max-w-[1200px] w-full mx-auto px-6 py-8 space-y-8">
+        {/* Category Section Header & Management Button */}
+        <div className="flex items-center justify-between gap-4 pb-2 border-b border-slate-100/80 mb-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-extrabold text-slate-700 tracking-tight">🏷️ 카테고리 탐색</span>
+            <span className="text-[11px] font-bold text-slate-400">({categories.length}개 분야)</span>
+          </div>
+
           <button
-            className={`filter-btn ${activeCategory === null ? 'active' : ''}`}
+            type="button"
+            onClick={() => {
+              console.log('[Manage Modal Open Clicked]')
+              setIsManageModalOpen(true)
+            }}
+            className="px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 flex items-center gap-1.5 shadow-sm hover:scale-105 cursor-pointer active:scale-95"
+          >
+            <span>⚙️ 카테고리 관리</span>
+          </button>
+        </div>
+
+        {/* Category Pills */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
+          <button
             onClick={() => handleCategoryClick(null)}
+            className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
+              activeCategory === null
+                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200'
+                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+            }`}
           >
             전체
           </button>
           {categories.map((cat) => (
             <button
               key={cat.id}
-              className={`filter-btn ${activeCategory === cat.slug ? 'active' : ''}`}
               onClick={() => handleCategoryClick(cat.slug)}
+              className={`px-4 py-2 rounded-full text-xs font-medium whitespace-nowrap transition-all cursor-pointer ${
+                activeCategory === cat.slug
+                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200 font-bold'
+                  : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+              }`}
             >
               {cat.name}
             </button>
           ))}
         </div>
 
-        {/* Blog Card Grid */}
+        {/* Posts Grid */}
         {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="blog-card">
-                <div className="skeleton h-5 w-20"></div>
-                <div className="skeleton h-6 w-full mt-2"></div>
-                <div className="skeleton h-4 w-full mt-1"></div>
-                <div className="skeleton h-4 w-3/4 mt-1"></div>
-                <div className="flex items-center gap-3 mt-4">
-                  <div className="skeleton w-9 h-9 rounded-full"></div>
-                  <div className="skeleton h-4 w-24"></div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className="bg-white border border-slate-100 rounded-2xl p-5 space-y-4 animate-pulse">
+                <div className="h-4 bg-slate-100 rounded w-1/4" />
+                <div className="h-6 bg-slate-100 rounded w-3/4" />
+                <div className="h-4 bg-slate-100 rounded w-full" />
+                <div className="h-4 bg-slate-100 rounded w-2/3" />
+                <div className="pt-4 flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-slate-100" />
+                  <div className="h-3 bg-slate-100 rounded w-1/3" />
                 </div>
               </div>
             ))}
           </div>
         ) : posts.length === 0 ? (
-          <div className="text-center py-20">
-            <p className="text-zinc-400 text-lg">게시글이 없습니다.</p>
+          <div className="text-center py-16 bg-white border border-slate-100 rounded-3xl space-y-3">
+            <p className="text-base font-bold text-slate-700">게시글이 존재하지 않습니다.</p>
+            <p className="text-xs text-slate-400">새로운 AI 자동 포스트를 작성해 보세요!</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {posts.map((post) => (
-              <Link key={post.id} href={`/posts/${post.id}`} className="blog-card no-underline text-inherit">
-                {/* Top: Tags + Date */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {post.categories.map((cat) => (
+              <Link
+                key={post.id}
+                href={`/posts/${post.id}`}
+                className="group bg-white border border-slate-200/80 hover:border-indigo-200 rounded-2xl p-6 transition-all duration-200 hover:-translate-y-1 hover:shadow-xl hover:shadow-indigo-500/5 flex flex-col justify-between no-underline"
+              >
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {post.categories.map((c) => (
                       <span
-                        key={cat.id}
-                        className="category-tag"
-                        data-category={cat.name}
+                        key={c.id}
+                        className="text-[11px] font-extrabold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-md"
                       >
-                        {cat.name}
+                        {c.name}
                       </span>
                     ))}
                   </div>
-                  <span className="text-xs text-zinc-400 flex-shrink-0 ml-2">
-                    {formatDate(post.published_at)}
-                  </span>
+
+                  <h2 className="text-base font-bold text-slate-900 group-hover:text-indigo-600 transition-colors line-clamp-2 leading-snug">
+                    {post.title}
+                  </h2>
+
+                  <p className="text-xs text-slate-500 line-clamp-3 leading-relaxed">
+                    {post.excerpt}
+                  </p>
                 </div>
 
-                {/* Title */}
-                <h3 className="text-base font-bold text-zinc-900 leading-snug">
-                  {post.title}
-                </h3>
-
-                {/* Excerpt */}
-                <p className="text-sm text-zinc-500 leading-relaxed line-clamp-3 flex-1">
-                  {post.excerpt}
-                </p>
-
-                {/* Author */}
-                {post.author && (
-                  <div className="flex items-center gap-3 mt-auto pt-2">
-                    <div className="avatar-circle">
-                      {getInitials(post.author.name)}
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-zinc-800 leading-tight">
-                        {post.author.name}
-                      </p>
-                      <p className="text-xs text-zinc-400">{post.author.role}</p>
-                    </div>
+                <div className="pt-6 mt-6 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400">
+                  <div className="flex items-center gap-2.5">
+                    {post.author?.avatar_url ? (
+                      <img
+                        src={post.author.avatar_url}
+                        alt={post.author.name}
+                        className="w-7 h-7 rounded-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-7 h-7 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-[10px]">
+                        {getInitials(post.author?.name || 'Dev')}
+                      </div>
+                    )}
+                    <span className="font-semibold text-slate-600">{post.author?.name || '에디터'}</span>
                   </div>
-                )}
+
+                  <span>{formatDate(post.published_at)}</span>
+                </div>
               </Link>
             ))}
           </div>
         )}
 
         {/* Pagination */}
-        {totalPages > 1 && !loading && (
-          <div className="flex items-center justify-center gap-2 mt-12">
-            <button
-              className="pagination-btn"
-              disabled={currentPage === 1}
-              onClick={() => setCurrentPage((p) => p - 1)}
-              aria-label="이전 페이지"
-            >
-              <svg className="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
-              </svg>
-            </button>
+        {totalPages > 1 && (
+          <div className="flex items-center justify-center gap-2 pt-6">
             {getPaginationNumbers().map((page, idx) =>
-              page === '...' ? (
-                <span key={`ellipsis-${idx}`} className="w-10 text-center text-sm text-zinc-400">
-                  …
-                </span>
-              ) : (
+              typeof page === 'number' ? (
                 <button
-                  key={page}
-                  className={`pagination-btn ${currentPage === page ? 'active' : ''}`}
+                  key={idx}
                   onClick={() => setCurrentPage(page)}
+                  className={`w-9 h-9 rounded-xl text-xs font-bold transition-all ${
+                    currentPage === page
+                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200'
+                      : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                  }`}
                 >
                   {page}
                 </button>
+              ) : (
+                <span key={idx} className="px-2 text-slate-400 text-xs font-bold">
+                  {page}
+                </span>
               )
             )}
-            <button
-              className="pagination-btn"
-              disabled={currentPage === totalPages}
-              onClick={() => setCurrentPage((p) => p + 1)}
-              aria-label="다음 페이지"
-            >
-              <svg className="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-              </svg>
-            </button>
           </div>
         )}
       </main>
 
-      {/* =================== FOOTER =================== */}
-      <footer className="border-t border-[var(--border)] bg-zinc-50">
-        <div className="max-w-[1200px] mx-auto px-6 py-8 flex items-center justify-between">
-          <span className="text-lg font-extrabold text-zinc-900 tracking-tight">DevFlow</span>
-          <nav className="flex items-center gap-6">
-            <Link href="/docs" className="text-sm text-zinc-500 hover:text-zinc-900 no-underline transition-colors">문서</Link>
-            <Link href="/changelog" className="text-sm text-zinc-500 hover:text-zinc-900 no-underline transition-colors">변경 내역</Link>
-            <Link href="/privacy" className="text-sm text-zinc-500 hover:text-zinc-900 no-underline transition-colors">개인정보 처리방침</Link>
-          </nav>
-        </div>
-      </footer>
+      {/* ★ 카테고리 관리 팝업 모달 마운트 */}
+      <CategoryManagementModal
+        isOpen={isManageModalOpen}
+        onClose={() => setIsManageModalOpen(false)}
+        onCategoriesUpdated={async () => {
+          const { data } = await supabase
+            .from('blog_categories')
+            .select('*')
+            .order('id', { ascending: true })
+          if (data) setCategories(data)
+        }}
+      />
     </div>
   )
 }

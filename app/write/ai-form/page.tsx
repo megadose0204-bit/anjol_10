@@ -123,7 +123,6 @@ export default function AiFormPage() {
             AutoBlog
           </Link>
           <div className="flex items-center gap-4 text-xs font-semibold text-slate-600">
-            <Link href="/write" className="hover:text-slate-900 no-underline">기본 에디터</Link>
             {userEmail ? <span>{userEmail}</span> : <Link href="/auth">로그인</Link>}
           </div>
         </div>

@@ -92,8 +92,49 @@ function inline(text: string): string {
   return escaped
 }
 
+/**
+ * 뭉친 대용량 문단을 2~3문장 단위(약 120~160자)로 자연스럽게 줄바꿈(소문단 분할)해주는 가독성 유틸리티
+ */
+export function formatReadableParagraphs(text: string): string {
+  if (!text || text.trim().length === 0) return text
+
+  const paragraphs = text.split(/\n\s*\n/)
+
+  const formatted = paragraphs.map((p) => {
+    const trimmed = p.trim()
+    if (trimmed.length < 200) return trimmed
+
+    const sentences = trimmed.split(/(?<=[.!?])\s+/)
+    if (sentences.length <= 2) return trimmed
+
+    const chunks: string[] = []
+    let currentChunk: string[] = []
+    let currentLen = 0
+
+    for (const sentence of sentences) {
+      currentChunk.push(sentence)
+      currentLen += sentence.length
+
+      if (currentChunk.length >= 2 && currentLen >= 120) {
+        chunks.push(currentChunk.join(' '))
+        currentChunk = []
+        currentLen = 0
+      }
+    }
+
+    if (currentChunk.length > 0) {
+      chunks.push(currentChunk.join(' '))
+    }
+
+    return chunks.join('\n\n')
+  })
+
+  return formatted.join('\n\n')
+}
+
 export function mdLiteToHtml(raw: string): string {
-  const lines = raw.replace(/\r\n/g, '\n').split('\n')
+  const formattedRaw = formatReadableParagraphs(raw || '')
+  const lines = formattedRaw.replace(/\r\n/g, '\n').split('\n')
   const blocks: string[] = []
   let paragraphBuf: string[] = []
   let listBuf: string[] = []
@@ -101,7 +142,14 @@ export function mdLiteToHtml(raw: string): string {
 
   const flushParagraph = () => {
     if (paragraphBuf.length > 0) {
-      blocks.push(`<p class="leading-relaxed mb-4 text-slate-800">${inline(paragraphBuf.join(' '))}</p>`)
+      const fullText = paragraphBuf.join(' ')
+      const splitText = formatReadableParagraphs(fullText)
+      const subParagraphs = splitText.split('\n\n')
+      subParagraphs.forEach((subP) => {
+        if (subP.trim()) {
+          blocks.push(`<p class="leading-relaxed mb-5 text-slate-800">${inline(subP.trim())}</p>`)
+        }
+      })
       paragraphBuf = []
     }
   }
@@ -124,6 +172,7 @@ export function mdLiteToHtml(raw: string): string {
     if (trimmed.startsWith('```')) {
       flushParagraph()
       flushList()
+      const lang = trimmed.replace(/^```/, '').trim() || 'text'
       const codeLines: string[] = []
       i++
       while (i < lines.length && !lines[i].trim().startsWith('```')) {
@@ -133,16 +182,30 @@ export function mdLiteToHtml(raw: string): string {
       i++
       const rawCode = codeLines.join('\n')
       blocks.push(
-        `<div class="my-4 space-y-1.5">` +
-          `<div class="flex items-center justify-between text-xs text-slate-500 font-mono px-1">` +
-            `<span class="font-medium text-slate-400">PROMPT CODE</span>` +
-            `<button onclick="if(navigator.clipboard){navigator.clipboard.writeText(this.parentElement.nextElementSibling.innerText.trim());const orig=this.innerHTML;this.innerHTML='✓ 복사완료!';this.classList.add('bg-emerald-600','text-white');setTimeout(()=>{this.innerHTML=orig;this.classList.remove('bg-emerald-600','text-white');},2000);}" class="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg shadow border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer active:scale-95">` +
-              `📋 복사하기` +
-            `</button>` +
+        `<div class="my-3 rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 shadow-xl">` +
+          `<div class="flex items-center gap-2 bg-slate-900 px-4 py-2 border-b border-slate-800 text-slate-400 text-xs font-mono font-semibold uppercase tracking-wider">` +
+            `<span class="inline-block w-2.5 h-2.5 rounded-full bg-indigo-500/80"></span>` +
+            `<span class="text-slate-300">${escapeHtml(lang)}</span>` +
           `</div>` +
-          `<pre class="bg-slate-900 text-slate-100 p-4 rounded-xl overflow-x-auto text-xs font-mono shadow-md border border-slate-800"><code>${escapeHtml(rawCode)}</code></pre>` +
+          `<pre class="p-4 overflow-x-auto text-xs font-mono text-slate-200 bg-slate-950 leading-relaxed"><code>${escapeHtml(rawCode)}</code></pre>` +
         `</div>`
       )
+      continue
+    }
+
+    if (/^####\s+/.test(trimmed)) {
+      flushParagraph()
+      flushList()
+      const titleText = trimmed.replace(/^####\s+/, '')
+      blocks.push(
+        `<div class="flex items-center justify-between mt-8 mb-3 pb-2 border-b border-slate-200/80">` +
+          `<h4 class="text-sm font-bold text-slate-900 flex items-center gap-2">${inline(titleText)}</h4>` +
+          `<button type="button" data-copy-btn="true" onclick="const flexDiv=this.closest('.flex'); const codeEl=flexDiv ? flexDiv.nextElementSibling?.querySelector('code') : null; if(codeEl){navigator.clipboard.writeText(codeEl.innerText).then(()=>{const self=this; const orig=self.innerHTML; self.innerHTML='✓ 복사완료!'; self.classList.add('text-emerald-600','border-emerald-500','bg-emerald-50'); setTimeout(()=>{self.innerHTML=orig; self.classList.remove('text-emerald-600','border-emerald-500','bg-emerald-50');}, 2000);});}" class="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-indigo-600 hover:text-white bg-indigo-50 hover:bg-indigo-600 border border-indigo-200 hover:border-indigo-600 rounded-xl transition-all shadow-sm active:scale-95 cursor-pointer shadow-indigo-100/50">` +
+            `📋 프롬프트 복사` +
+          `</button>` +
+        `</div>`
+      )
+      i++
       continue
     }
 
