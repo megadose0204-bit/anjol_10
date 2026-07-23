@@ -1,0 +1,445 @@
+{
+  "version": "2.0",
+  "lastUpdated": "2026-07-21T03:11:03.154Z",
+  "activeFeatures": [
+    "[id]",
+    "blog",
+    "auth",
+    "supabase",
+    "write",
+    "_components",
+    "topics",
+    "community",
+    "docs",
+    "changelog",
+    "privacy"
+  ],
+  "primaryFeature": "[id]",
+  "features": {
+    "[id]": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-07-20T15:47:23.637Z",
+        "lastUpdated": "2026-07-21T03:11:03.154Z"
+      },
+      "lastFile": "D:\\Antigravity\\blog\\app\\posts\\[id]\\page.tsx"
+    },
+    "blog": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-07-21T01:09:26.351Z",
+        "lastUpdated": "2026-07-21T03:08:19.892Z"
+      },
+      "lastFile": "D:\\Antigravity\\blog\\app\\page.tsx"
+    },
+    "auth": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-07-21T01:27:35.635Z",
+        "lastUpdated": "2026-07-21T03:08:50.861Z"
+      },
+      "lastFile": "D:\\Antigravity\\blog\\app\\auth\\auth-form.tsx"
+    },
+    "supabase": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-07-21T01:27:55.918Z",
+        "lastUpdated": "2026-07-21T01:27:55.918Z"
+      },
+      "lastFile": "D:\\Antigravity\\blog\\utils\\supabase\\middleware.ts"
+    },
+    "write": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-07-21T03:05:22.939Z",
+        "lastUpdated": "2026-07-21T03:06:10.722Z"
+      },
+      "lastFile": "D:\\Antigravity\\blog\\app\\write\\page.tsx"
+    },
+    "_components": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-07-21T03:07:32.710Z",
+        "lastUpdated": "2026-07-21T03:07:32.710Z"
+      },
+      "lastFile": "D:\\Antigravity\\blog\\app\\_components\\info-page.tsx"
+    },
+    "topics": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-07-21T03:07:36.812Z",
+        "lastUpdated": "2026-07-21T03:07:36.812Z"
+      },
+      "lastFile": "D:\\Antigravity\\blog\\app\\topics\\page.tsx"
+    },
+    "community": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-07-21T03:07:44.015Z",
+        "lastUpdated": "2026-07-21T03:07:44.015Z"
+      },
+      "lastFile": "D:\\Antigravity\\blog\\app\\community\\page.tsx"
+    },
+    "docs": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-07-21T03:07:49.088Z",
+        "lastUpdated": "2026-07-21T03:07:49.088Z"
+      },
+      "lastFile": "D:\\Antigravity\\blog\\app\\docs\\page.tsx"
+    },
+    "changelog": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-07-21T03:07:54.724Z",
+        "lastUpdated": "2026-07-21T03:07:54.724Z"
+      },
+      "lastFile": "D:\\Antigravity\\blog\\app\\changelog\\page.tsx"
+    },
+    "privacy": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-07-21T03:08:01.146Z",
+        "lastUpdated": "2026-07-21T03:08:01.146Z"
+      },
+      "lastFile": "D:\\Antigravity\\blog\\app\\privacy\\page.tsx"
+    }
+  },
+  "pipeline": {
+    "currentPhase": 1,
+    "level": "Dynamic",
+    "phaseHistory": []
+  },
+  "session": {
+    "startedAt": "2026-07-20T11:13:12.666Z",
+    "onboardingCompleted": false,
+    "lastActivity": "2026-07-21T03:11:03.154Z"
+  },
+  "history": [
+    {
+      "timestamp": "2026-07-20T15:47:23.637Z",
+      "feature": "[id]",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T01:09:26.351Z",
+      "feature": "blog",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T01:09:29.909Z",
+      "feature": "blog",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T01:09:38.199Z",
+      "feature": "blog",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T01:27:31.212Z",
+      "feature": "blog",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T01:27:32.188Z",
+      "feature": "blog",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T01:27:35.635Z",
+      "feature": "auth",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T01:27:37.066Z",
+      "feature": "auth",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T01:27:48.685Z",
+      "feature": "auth",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T01:27:50.117Z",
+      "feature": "auth",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T01:27:51.813Z",
+      "feature": "auth",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T01:27:55.918Z",
+      "feature": "supabase",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T01:28:24.553Z",
+      "feature": "blog",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T01:28:29.968Z",
+      "feature": "[id]",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T02:54:32.008Z",
+      "feature": "blog",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T02:56:17.430Z",
+      "feature": "blog",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T02:56:23.284Z",
+      "feature": "[id]",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T02:56:28.748Z",
+      "feature": "[id]",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T02:59:01.118Z",
+      "feature": "blog",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T02:59:14.033Z",
+      "feature": "blog",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T03:04:13.904Z",
+      "feature": "blog",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T03:05:22.939Z",
+      "feature": "write",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T03:05:36.031Z",
+      "feature": "blog",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T03:05:43.068Z",
+      "feature": "[id]",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T03:06:10.722Z",
+      "feature": "write",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T03:07:32.710Z",
+      "feature": "_components",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T03:07:36.812Z",
+      "feature": "topics",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T03:07:44.015Z",
+      "feature": "community",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T03:07:49.088Z",
+      "feature": "docs",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T03:07:54.724Z",
+      "feature": "changelog",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T03:08:01.146Z",
+      "feature": "privacy",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T03:08:09.793Z",
+      "feature": "blog",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T03:08:19.892Z",
+      "feature": "blog",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T03:08:27.946Z",
+      "feature": "[id]",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T03:08:35.871Z",
+      "feature": "[id]",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T03:08:50.861Z",
+      "feature": "auth",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T03:09:37.948Z",
+      "feature": "[id]",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T03:09:42.677Z",
+      "feature": "[id]",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T03:09:49.009Z",
+      "feature": "[id]",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T03:09:53.806Z",
+      "feature": "[id]",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T03:10:00.647Z",
+      "feature": "[id]",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T03:10:30.101Z",
+      "feature": "[id]",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T03:10:35.078Z",
+      "feature": "[id]",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T03:10:47.692Z",
+      "feature": "[id]",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-21T03:11:03.154Z",
+      "feature": "[id]",
+      "phase": "do",
+      "action": "updated"
+    }
+  ]
+}

@@ -3,24 +3,243 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --primary: #005acc;
+  --primary-hover: #004bb9;
+  --primary-light: #e8effd;
+  --border: #e4e7ec;
+  --muted: #667085;
+  --card-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --card-shadow-hover: 0 4px 16px rgba(0, 0, 0, 0.08);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-light: var(--primary-light);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ========== Auth Page Grid Background ========== */
+.auth-grid-bg {
+  background-color: #fafbfc;
+  background-image:
+    linear-gradient(to right, rgba(0, 90, 204, 0.028) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(0, 90, 204, 0.028) 1px, transparent 1px),
+    radial-gradient(circle at 50% 50%, transparent 20%, #f1f6fc 95%);
+  background-size: 24px 24px, 24px 24px, 100% 100%;
+}
+
+/* ========== Category Tag Chips ========== */
+.category-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.category-tag[data-category="React"] { background: #dbeafe; color: #1d4ed8; }
+.category-tag[data-category="아키텍처"] { background: #e0e7ff; color: #4338ca; }
+.category-tag[data-category="Rust"] { background: #fee2e2; color: #dc2626; }
+.category-tag[data-category="DevOps"] { background: #d1fae5; color: #059669; }
+.category-tag[data-category="Kubernetes"] { background: #cffafe; color: #0891b2; }
+.category-tag[data-category="TypeScript"] { background: #dbeafe; color: #2563eb; }
+.category-tag[data-category="성능"] { background: #fef3c7; color: #d97706; }
+.category-tag[data-category="JavaScript"] { background: #fef9c3; color: #a16207; }
+.category-tag[data-category="Go"] { background: #ccfbf1; color: #0d9488; }
+.category-tag[data-category="Docker"] { background: #e0e7ff; color: #4f46e5; }
+.category-tag[data-category="데이터베이스"] { background: #ede9fe; color: #7c3aed; }
+.category-tag[data-category="보안"] { background: #fce7f3; color: #db2777; }
+
+/* ========== Filter Button ========== */
+.filter-btn {
+  padding: 6px 16px;
+  border-radius: 9999px;
+  font-size: 14px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  background: white;
+  color: #344054;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.filter-btn:hover {
+  background: #f9fafb;
+  border-color: #d0d5dd;
+}
+.filter-btn.active {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+/* ========== Blog Card ========== */
+.blog-card {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  cursor: pointer;
+}
+.blog-card:hover {
+  box-shadow: var(--card-shadow-hover);
+  border-color: #d0d5dd;
+}
+
+/* ========== Pagination ========== */
+.pagination-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: white;
+  color: #344054;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.pagination-btn:hover:not(:disabled) {
+  background: #f9fafb;
+  border-color: #d0d5dd;
+}
+.pagination-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.pagination-btn.active {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+/* ========== Skeleton Loading ========== */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 8px;
+}
+
+/* ========== Write Page Toolbar ========== */
+.toolbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  color: #475467;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.toolbar-btn:hover {
+  background: #f2f4f7;
+}
+
+/* ========== Post Cover ========== */
+.post-cover {
+  height: 280px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* ========== Post Content (article body) ========== */
+.post-content {
+  font-size: 15px;
+  line-height: 1.8;
+  color: #344054;
+}
+.post-content h2 {
+  font-size: 20px;
+  font-weight: 700;
+  color: #101828;
+  margin-top: 32px;
+  margin-bottom: 12px;
+}
+.post-content p {
+  margin-bottom: 16px;
+}
+.post-content blockquote {
+  border-left: 3px solid var(--primary);
+  background: var(--primary-light);
+  padding: 16px 20px;
+  border-radius: 0 8px 8px 0;
+  font-style: italic;
+  color: #344054;
+  margin: 20px 0;
+}
+.post-content pre {
+  background: #1d2939;
+  color: #e4e7ec;
+  padding: 16px 20px;
+  border-radius: 10px;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 20px 0;
+}
+.post-content pre code {
+  font-family: var(--font-mono), monospace;
+}
+.post-content ul {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ========== Avatar Circle ========== */
+.avatar-circle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--primary-light);
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  flex-shrink: 0;
 }
