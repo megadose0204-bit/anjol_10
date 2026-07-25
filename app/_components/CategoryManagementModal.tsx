@@ -197,10 +197,12 @@ export default function CategoryManagementModal({ isOpen, onClose, onCategoriesU
                           className="flex-1 text-xs px-3 py-1.5 bg-white border border-indigo-400 rounded-lg focus:outline-none text-slate-800 font-medium"
                         />
                         <button
+                          type="button"
                           onClick={() => handleSaveEdit(cat.id)}
-                          className="px-3 py-1.5 bg-indigo-600 text-white font-bold text-xs rounded-lg hover:bg-indigo-700"
+                          style={{ backgroundColor: '#2563eb', color: '#ffffff', border: 'none' }}
+                          className="px-3.5 py-1.5 bg-blue-600 text-white font-extrabold text-xs rounded-lg hover:bg-blue-700 transition-colors shadow-sm cursor-pointer"
                         >
-                          저장
+                          수정
                         </button>
                         <button
                           onClick={() => setEditingId(null)}

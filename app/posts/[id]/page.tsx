@@ -128,7 +128,8 @@ const DEFAULT_GRADIENT = 'linear-gradient(135deg, #94a3b8, #334155)'
 /* ------------------------------------------------------------------ */
 export default function PostDetailPage() {
   const params = useParams()
-  const postId = Number(params?.id)
+  const rawId = Array.isArray(params?.id) ? params.id[0] : params?.id
+  const postId = rawId ? Number(rawId) : NaN
   const supabase = useMemo(() => createClient(), [])
 
   const [post, setPost] = useState<Post | null>(null)
@@ -180,66 +181,136 @@ export default function PostDetailPage() {
 
   /* ---- Fetch post + relations ---- */
   const fetchPost = useCallback(async () => {
-    setLoading(true)
+    if (!postId || isNaN(postId)) return
 
-    const { data: postData } = await supabase
-      .from('blog_posts')
-      .select('*')
-      .eq('id', postId)
-      .single()
+    try {
+      setLoading(true)
 
-    if (!postData) {
+      // 1차: Supabase Client SDK로 포스트 데이터 로드 (2.5초 타임아웃 래퍼로 무한 펜딩 100% 방지)
+      let postData: any = null
+      try {
+        const queryPromise = supabase
+          .from('blog_posts')
+          .select('*')
+          .eq('id', postId)
+          .maybeSingle()
+
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('TIMEOUT')), 2500)
+        )
+
+        const result: any = await Promise.race([queryPromise, timeoutPromise])
+        if (result && result.data && !result.error) {
+          postData = result.data
+        }
+      } catch (e) {
+        console.warn('[FetchPost] Supabase client query delayed or failed, trying REST API fallback')
+      }
+
+      // 2차: REST API 백엔드(/api/posts/[id]) 폴백 로드
+      if (!postData) {
+        try {
+          const apiRes = await fetch(`/api/posts/${postId}`)
+          if (apiRes.ok) {
+            const apiJson = await apiRes.json()
+            if (apiJson.success && apiJson.data) {
+              const d = apiJson.data
+              postData = {
+                id: d.id,
+                title: d.title,
+                excerpt: d.excerpt,
+                content: d.content,
+                reading_minutes: d.reading_minutes,
+                published_at: d.published_at || d.created_at,
+                author_id: d.blog_authors?.id || 1,
+              }
+
+              if (d.blog_authors) {
+                setAuthor(d.blog_authors)
+              }
+
+              if (d.blog_post_categories && Array.isArray(d.blog_post_categories)) {
+                const cats = d.blog_post_categories
+                  .map((pc: any) => pc.blog_categories)
+                  .filter(Boolean)
+                setCategories(cats)
+              }
+            }
+          }
+        } catch (apiErr) {
+          console.error('[FetchPost] REST API fallback failed:', apiErr)
+        }
+      }
+
+      if (!postData) {
+        setNotFound(true)
+        return
+      }
+
+      setPost(postData)
+
+      // 저자 정보 로드 (REST API에서 안 가져온 경우)
+      if (postData.author_id) {
+        try {
+          const { data: authorData } = await supabase
+            .from('blog_authors')
+            .select('*')
+            .eq('id', postData.author_id)
+            .maybeSingle()
+          if (authorData) setAuthor(authorData)
+        } catch (e) {}
+      }
+
+      // 카테고리 정보 로드
+      try {
+        const { data: pcData } = await supabase
+          .from('blog_post_categories')
+          .select('category_id')
+          .eq('post_id', postId)
+        const catIds = pcData?.map((r: any) => r.category_id) ?? []
+        if (catIds.length > 0) {
+          const { data: catsData } = await supabase
+            .from('blog_categories')
+            .select('*')
+            .in('id', catIds)
+          if (catsData) setCategories(catsData)
+        }
+      } catch (e) {}
+
+      // 댓글 및 좋아요 로드
+      try {
+        const { data: commentsData } = await supabase
+          .from('blog_comments')
+          .select('*')
+          .eq('post_id', postId)
+          .order('created_at', { ascending: true })
+        setComments(commentsData ?? [])
+      } catch (e) {}
+
+      try {
+        const { count: likesCount } = await supabase
+          .from('blog_likes')
+          .select('*', { count: 'exact', head: true })
+          .eq('post_id', postId)
+        setLikeCount(likesCount ?? 0)
+      } catch (e) {}
+
+    } catch (err) {
+      console.error('[FetchPost Error]:', err)
       setNotFound(true)
+    } finally {
       setLoading(false)
-      return
     }
-    setPost(postData)
-
-    const { data: authorData } = await supabase
-      .from('blog_authors')
-      .select('*')
-      .eq('id', postData.author_id)
-      .single()
-    setAuthor(authorData ?? null)
-
-    const { data: pcData } = await supabase
-      .from('blog_post_categories')
-      .select('category_id')
-      .eq('post_id', postId)
-    const catIds = pcData?.map((r) => r.category_id) ?? []
-    if (catIds.length > 0) {
-      const { data: catsData } = await supabase
-        .from('blog_categories')
-        .select('*')
-        .in('id', catIds)
-      setCategories(catsData ?? [])
-    } else {
-      setCategories([])
-    }
-
-    const { data: commentsData } = await supabase
-      .from('blog_comments')
-      .select('*')
-      .eq('post_id', postId)
-      .order('created_at', { ascending: true })
-    setComments(commentsData ?? [])
-
-    const { count: likesCount } = await supabase
-      .from('blog_likes')
-      .select('*', { count: 'exact', head: true })
-      .eq('post_id', postId)
-    setLikeCount(likesCount ?? 0)
-
-    setLoading(false)
   }, [supabase, postId])
 
   useEffect(() => {
-    if (postId) {
-      queueMicrotask(() => {
-        fetchPost()
-      })
+    if (postId && !isNaN(postId)) {
+      fetchPost()
+    } else if (rawId === 'undefined' || (rawId && isNaN(postId))) {
+      setNotFound(true)
+      setLoading(false)
     }
-  }, [fetchPost, postId])
+  }, [fetchPost, postId, rawId])
 
   /* ---- Auth state ---- */
   useEffect(() => {
@@ -360,16 +431,8 @@ export default function PostDetailPage() {
       {/* =================== HEADER =================== */}
       <header className="sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-[var(--border)]">
         <div className="max-w-[1200px] mx-auto px-6 h-[60px] flex items-center justify-between gap-4">
-          <Link href="/" className="text-xl font-black text-indigo-600 no-underline">
-            AutoBlog
-          </Link>
-
-          <nav className="hidden md:flex items-center gap-6">
-            <Link href="/" className="text-sm font-medium text-zinc-600 hover:text-zinc-900 no-underline transition-colors">탐색</Link>
-            <Link href="/topics" className="text-sm font-medium text-zinc-600 hover:text-zinc-900 no-underline transition-colors">주제</Link>
-            <Link href="/community" className="text-sm font-medium text-zinc-600 hover:text-zinc-900 no-underline transition-colors">커뮤니티</Link>
-          </nav>
-
+          <Link href="/" className="text-xl font-black text-indigo-600 hover:text-indigo-500 no-underline transition-colors">AutoBlog</Link>
+          
           <div className="flex items-center gap-3 flex-shrink-0">
             <Link href="/" className="p-2 text-zinc-500 hover:text-zinc-900 transition-colors" aria-label="검색">
               <svg className="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
@@ -421,6 +484,21 @@ export default function PostDetailPage() {
             </Link>
 
             {/* Title */}
+            {/* 📂 등록된 카테고리 뱃지 (제목 바로 위 노출) */}
+            {categories.length > 0 && (
+              <div className="flex items-center gap-2 flex-wrap mb-3.5">
+                {categories.map((cat) => (
+                  <Link
+                    key={cat.id}
+                    href={`/?category=${encodeURIComponent(cat.slug)}`}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-blue-600 text-white shadow-sm hover:bg-blue-700 transition-all no-underline cursor-pointer"
+                  >
+                    <span>📂</span>
+                    <span>{cat.name}</span>
+                  </Link>
+                ))}
+              </div>
+            )}
             <h1 className="text-2xl sm:text-3xl font-extrabold text-zinc-900 tracking-tight leading-snug mb-4">
               {post.title}
             </h1>
@@ -540,7 +618,7 @@ export default function PostDetailPage() {
                         const json = await res.json()
                         if (res.ok && json.success) {
                           alert('게시글이 성공적으로 삭제되었습니다.')
-                          window.location.href = '/'
+                          window.location.replace('/blog')
                         } else {
                           alert(json.error || '게시글 삭제에 실패했습니다.')
                         }

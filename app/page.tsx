@@ -159,7 +159,7 @@ export default function HomePage() {
           return
         }
 
-        const authorIds = [...new Set(postsData.map((p) => p.author_id))].filter(Boolean)
+        const authorIds = Array.from(new Set(postsData.map((p) => p.author_id))).filter(Boolean)
         const { data: authorsData } = await supabase
           .from('blog_authors')
           .select('*')
@@ -172,7 +172,7 @@ export default function HomePage() {
           .select('post_id, category_id')
           .in('post_id', fetchedPostIds)
 
-        const catIds = [...new Set(pcData?.map((pc) => pc.category_id) ?? [])]
+        const catIds = Array.from(new Set(pcData?.map((pc) => pc.category_id) ?? []))
         const { data: catsData } = await supabase
           .from('blog_categories')
           .select('*')
@@ -237,50 +237,46 @@ export default function HomePage() {
   }
 
   return (
-    <div className="flex flex-col min-h-screen">
+    <div className="flex flex-col min-h-screen blog-light-scope bg-white text-zinc-900">
       {/* =================== HEADER =================== */}
       <header className="sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-[var(--border)]">
         <div className="max-w-[1200px] mx-auto px-6 h-[60px] flex items-center justify-between gap-4">
-          <Link href="/" className="text-xl font-black text-indigo-600 no-underline">
-            AutoBlog
-          </Link>
+          <Link href="/blog" className="text-xl font-black text-indigo-600 hover:text-indigo-500 no-underline transition-colors">AutoBlog</Link>
 
-          <form onSubmit={handleSearch} className="relative flex-1 max-w-[360px] hidden sm:block">
-            <input
-              type="text"
-              placeholder="게시물 검색..."
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              className="w-full h-9 pl-9 pr-4 text-xs bg-slate-100/80 border-0 rounded-full focus:outline-none focus:ring-2 focus:ring-indigo-500/30 text-slate-700 placeholder-slate-400"
-            />
-            <svg
-              className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+          {/* 검색 폼 (입력창 + 검색하기 버튼) */}
+          <form onSubmit={handleSearch} className="flex items-center gap-2 flex-1 max-w-[480px]">
+            <div className="relative flex-1">
+              <input
+                type="text"
+                placeholder="블로그 제목으로 검색..."
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                className="w-full h-10 pl-9 pr-4 text-xs font-semibold bg-slate-100/90 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 text-slate-800 placeholder-slate-400"
               />
-            </svg>
+              <svg
+                className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
+              </svg>
+            </div>
+            <button
+              type="submit"
+              className="h-10 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-xl shadow-md hover:shadow-lg transition-all cursor-pointer flex-shrink-0 flex items-center gap-1.5"
+            >
+              <span>🔍</span>
+              <span>검색하기</span>
+            </button>
           </form>
 
-          <nav className="hidden md:flex items-center gap-6">
-            <Link href="/" className="text-sm font-medium text-zinc-900 no-underline">탐색</Link>
-            <Link href="/topics" className="text-sm font-medium text-zinc-600 hover:text-zinc-900 no-underline transition-colors">주제</Link>
-            <Link href="/community" className="text-sm font-medium text-zinc-600 hover:text-zinc-900 no-underline transition-colors">커뮤니티</Link>
-          </nav>
-
           <div className="flex items-center gap-3 flex-shrink-0">
-            <Link
-              href="/write/ai-form"
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-md shadow-indigo-200 transition-all hover:scale-105 no-underline"
-            >
-              <span>✨ AI 글쓰기</span>
-            </Link>
             {userEmail ? (
               <span className="text-xs font-semibold text-slate-600 bg-slate-100 px-3 py-1.5 rounded-full">
                 {userEmail}
@@ -307,12 +303,14 @@ export default function HomePage() {
             자동으로 검색엔진에 최적화된 블로그를 만들어 드립니다
           </p>
 
-          <div className="pt-2">
+          <div className="pt-3">
             <Link
-              href="/write/ai-form"
-              className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs sm:text-sm rounded-2xl shadow-lg shadow-indigo-200 transition-all hover:scale-105 no-underline"
+              href="/blog/write/ai-form"
+              style={{ backgroundColor: '#2563eb', color: '#ffffff', border: 'none' }}
+              className="inline-flex items-center gap-2.5 px-8 py-3.5 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-sm sm:text-base shadow-xl shadow-blue-500/30 hover:shadow-blue-500/50 hover:scale-105 transition-all no-underline cursor-pointer"
             >
-              <span>🚍 실시간 핫뉴스 검색 분석 및 AI 자동블로그 작성하기</span>
+              <span className="text-lg">✨</span>
+              <span>AI 글쓰기 (자동 포스팅 생성)</span>
             </Link>
           </div>
         </div>
@@ -342,28 +340,47 @@ export default function HomePage() {
         {/* Category Pills */}
         <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
           <button
+            type="button"
             onClick={() => handleCategoryClick(null)}
-            className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
-              activeCategory === null
-                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200'
-                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-            }`}
+            style={{
+              backgroundColor: activeCategory === null ? '#2563eb' : '#f1f5f9',
+              color: activeCategory === null ? '#ffffff' : '#334155',
+              fontWeight: activeCategory === null ? '800' : '600',
+              border: activeCategory === null ? '1px solid #1d4ed8' : '1px solid #cbd5e1',
+              boxShadow: activeCategory === null ? '0 4px 12px rgba(37, 99, 235, 0.35)' : 'none',
+              padding: '8px 18px',
+              borderRadius: '9999px',
+              fontSize: '13px',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease-in-out'
+            }}
           >
             전체
           </button>
-          {categories.map((cat) => (
-            <button
-              key={cat.id}
-              onClick={() => handleCategoryClick(cat.slug)}
-              className={`px-4 py-2 rounded-full text-xs font-medium whitespace-nowrap transition-all cursor-pointer ${
-                activeCategory === cat.slug
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200 font-bold'
-                  : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-              }`}
-            >
-              {cat.name}
-            </button>
-          ))}
+          {categories.map((cat) => {
+            const isActive = activeCategory === cat.slug;
+            return (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => handleCategoryClick(cat.slug)}
+                style={{
+                  backgroundColor: isActive ? '#2563eb' : '#f1f5f9',
+                  color: isActive ? '#ffffff' : '#334155',
+                  fontWeight: isActive ? '800' : '600',
+                  border: isActive ? '1px solid #1d4ed8' : '1px solid #cbd5e1',
+                  boxShadow: isActive ? '0 4px 12px rgba(37, 99, 235, 0.35)' : 'none',
+                  padding: '8px 18px',
+                  borderRadius: '9999px',
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease-in-out'
+                }}
+              >
+                {cat.name}
+              </button>
+            );
+          })}
         </div>
 
         {/* Posts Grid */}
@@ -392,7 +409,7 @@ export default function HomePage() {
             {posts.map((post) => (
               <Link
                 key={post.id}
-                href={`/posts/${post.id}`}
+                href={`/blog/posts/${post.id}`}
                 className="group bg-white border border-slate-200/80 hover:border-indigo-200 rounded-2xl p-6 transition-all duration-200 hover:-translate-y-1 hover:shadow-xl hover:shadow-indigo-500/5 flex flex-col justify-between no-underline"
               >
                 <div className="space-y-3">

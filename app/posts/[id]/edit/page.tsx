@@ -1,10 +1,8 @@
 'use client'
 
-import { useEffect, useState, useMemo, useRef, use } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState, useRef, useMemo } from 'react'
+import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { mdLiteToHtml } from '@/utils/markdown'
-import { createClient } from '@/utils/supabase/client'
 
 interface Category {
   id: number
@@ -12,223 +10,201 @@ interface Category {
   slug: string
 }
 
-interface PostEditPageProps {
-  params: Promise<{ id: string }>
-}
-
-/**
- * HTML 코드를 깨끗한 마크다운/순수 텍스트로 변환하는 정제 유틸리티 (대용량 Base64 이미지 보존)
- */
-function htmlToMarkdownWithImageStore(
-  htmlText: string,
-  imageStore: Map<string, string>
-): string {
-  if (!htmlText) return ''
-  imageStore.clear()
-  let count = 0
-
-  let str = htmlText
-
-  // HTML Entity 복원
-  str = str
-    .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&#39;/g, "'")
-
-  // 0. '### 🎨 생성 이미지 AI 프롬프트 및 API 요청 스키마' 이하 디버그 스키마 섹션 전면 제거
-  const schemaIdx = str.indexOf('### 🎨 생성 이미지 AI 프롬프트')
-  if (schemaIdx !== -1) {
-    str = str.slice(0, schemaIdx).trim()
-  }
-  const altSchemaIdx = str.indexOf('🎨 생성 이미지 AI 프롬프트')
-  if (altSchemaIdx !== -1) {
-    str = str.slice(0, altSchemaIdx).trim()
+/* ------------------------------------------------------------------ */
+/*  Base64 -> [첨부 이미지 N] 표기 전환 유틸리티                        */
+/* ------------------------------------------------------------------ */
+function replaceBase64WithImageTags(contentStr: string): string {
+  if (!contentStr || !contentStr.includes('data:image/')) {
+    return contentStr
   }
 
-  // 1. V8 정규식 오버플로우 100% 방지 Non-Regex Pure String Slicing으로 Base64 바이너리 [첨부이미지 N] 치환
+  let updated = contentStr
   let searchIdx = 0
-  let htmlIter = str
+  let imageCounter = 1
 
   while (true) {
-    const startIdx = htmlIter.indexOf('data:image/', searchIdx)
+    const startIdx = updated.indexOf('data:image/', searchIdx)
     if (startIdx === -1) break
 
-    let endIdx = htmlIter.indexOf('"', startIdx)
-    const endAltIdx = htmlIter.indexOf(')', startIdx)
+    let endIdx = updated.indexOf('"', startIdx)
+    const endAlt1 = updated.indexOf("'", startIdx)
+    const endAlt2 = updated.indexOf(")", startIdx)
+    const endAlt3 = updated.indexOf(" ", startIdx)
 
-    if (endIdx === -1 || (endAltIdx !== -1 && endAltIdx < endIdx)) {
-      endIdx = endAltIdx
-    }
+    let validEnds = [endIdx, endAlt1, endAlt2, endAlt3].filter(idx => idx > startIdx)
+    if (validEnds.length === 0) break
 
-    if (endIdx === -1) {
-      endIdx = Math.min(htmlIter.length, startIdx + 10000)
-    }
+    endIdx = Math.min(...validEnds)
 
-    const b64Match = htmlIter.slice(startIdx, endIdx)
-    count++
-    const key = `[첨부이미지 ${count}]`
-    imageStore.set(key, b64Match)
-
-    htmlIter = htmlIter.slice(0, startIdx) + key + htmlIter.slice(endIdx)
-    searchIdx = startIdx + key.length
+    const tag = `[첨부 이미지 ${imageCounter}]`
+    updated = updated.slice(0, startIdx) + tag + updated.slice(endIdx)
+    searchIdx = startIdx + tag.length
+    imageCounter++
   }
-  str = htmlIter
 
-  // 2. 일반 HTTP URL 이미지 파싱
-  str = str.replace(/<figure[^>]*>\s*<img[^>]*src=["']([^"']+)["'][^>]*alt=["']([^"']*)["'][^>]*\/?>\s*(?:<figcaption[^>]*>.*?<\/figcaption>)?\s*<\/figure>/gi, '\n![$2]($1)\n')
-  str = str.replace(/<img[^>]*src=["']([^"']+)["'][^>]*alt=["']([^"']*)["'][^>]*\/?>/gi, '\n![$2]($1)\n')
-
-  // 3. blockquote ➔ >
-  str = str.replace(/<blockquote[^>]*>(.*?)<\/blockquote>/gi, (_m, inner) => {
-    const cleanInner = inner.replace(/<[^>]+>/g, '').trim()
-    return `\n> ${cleanInner}\n`
-  })
-
-  // 4. Headings
-  str = str.replace(/<h1[^>]*>(.*?)<\/h1>/gi, '\n# $1\n')
-  str = str.replace(/<h2[^>]*>(.*?)<\/h2>/gi, '\n## $1\n')
-  str = str.replace(/<h3[^>]*>(.*?)<\/h3>/gi, '\n### $1\n')
-
-  // 5. p 태그
-  str = str.replace(/<p[^>]*>(.*?)<\/p>/gi, '\n$1\n')
-
-  // 6. 기타 태그 정리
-  str = str.replace(/<hr[^>]*>/gi, '\n---\n')
-  str = str.replace(/<br\s*\/?>/gi, '\n')
-  str = str.replace(/<[^>]+>/g, '')
-
-  // 7. 연속 개행 정리
-  str = str.replace(/\n{3,}/g, '\n\n').trim()
-
-  return str
+  return updated
 }
 
-export default function PostEditPage({ params }: PostEditPageProps) {
-  const resolvedParams = use(params)
-  const postId = resolvedParams.id
+export default function PostEditPage() {
+  const params = useParams()
+  const postId = (params?.id as string) || ''
   const router = useRouter()
 
   const [title, setTitle] = useState('')
   const [excerpt, setExcerpt] = useState('')
-  const [content, setContent] = useState('')
+
+  // rawContent: DB 원본 그대로 (Base64 이미지 포함) — 비주얼 모드용
+  const [rawContent, setRawContent] = useState('')
+  // codeContent: [첨부 이미지 N] 태그로 치환된 경량 텍스트 — 코드 모드용
+  const [codeContent, setCodeContent] = useState('')
+
+  const [categories, setCategories] = useState<Category[]>([])
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<number[]>([])
+
+  // 듀얼 에디터 모드
+  const [editorMode, setEditorMode] = useState<'visual' | 'code'>('visual')
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [categories, setCategories] = useState<Category[]>([])
-  const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  // 원본 Base64 이미지 바이너리를 안전하게 1:1 보관하는 메모리 맵
-  const imageStoreRef = useRef<Map<string, string>>(new Map())
+  const visualContentRef = useRef<HTMLDivElement>(null)
 
-  // 좌측 텍스트 내용 중 [첨부이미지 N] 키를 원본 Base64 바이너리로 복원 후 우측 시각적 HTML 렌더링
-  const htmlPreview = useMemo(() => {
-    let restoredContent = content
-    imageStoreRef.current.forEach((src, key) => {
-      restoredContent = restoredContent.replaceAll(key, src)
-    })
-    return mdLiteToHtml(restoredContent)
-  }, [content])
-
+  // 1. 게시글 데이터 로드
   useEffect(() => {
-    async function fetchAllCategories() {
-      try {
-        const supabase = createClient()
-        const { data } = await supabase.from('blog_categories').select('*').order('id', { ascending: true })
-        if (data && data.length > 0) {
-          setCategories(data)
-        }
-      } catch (err) {
-        console.error('Failed to fetch all categories:', err)
-      }
-    }
-    fetchAllCategories()
-  }, [])
+    if (!postId) return
 
-  useEffect(() => {
-    async function initData() {
+    async function loadData() {
       try {
         setLoading(true)
+        setError(null)
 
-        const postRes = await fetch(`/api/posts/${postId}`)
-        const postJson = await postRes.json()
-
-        if (postRes.ok && postJson.success && postJson.data) {
-          const p = postJson.data
-          setTitle(p.title || '')
-          setExcerpt(p.excerpt || '')
-
-          // 대용량 Base64 바이너리를 [첨부이미지 1, 2, 3]으로 치환하고 원본은 imageStoreRef에 보존
-          const cleanText = htmlToMarkdownWithImageStore(p.content || '', imageStoreRef.current)
-          setContent(cleanText)
-        } else {
-          setError(postJson.error || '게시글 정보를 불러오지 못했습니다.')
+        const res = await fetch(`/api/posts/${postId}`)
+        if (!res.ok) {
+          throw new Error('게시글을 가져오는 데 실패했습니다. (Status: ' + res.status + ')')
         }
+
+        const postData = await res.json()
+        setTitle(postData.title || '')
+        setExcerpt(postData.excerpt || '')
+
+        const original = postData.content || ''
+        // 비주얼 모드: 원본 그대로 (실제 이미지 포함!)
+        setRawContent(original)
+        // 코드 모드: Base64 이미지를 [첨부 이미지 N] 으로 치환
+        setCodeContent(replaceBase64WithImageTags(original))
+
+        setSelectedCategoryIds(postData.category_ids || [])
+        setCategories(postData.all_categories || [])
       } catch (err: any) {
-        setError('서버 연결 중 오류가 발생했습니다.')
+        console.error('[Edit Page Load Error]:', err)
+        setError(err.message || '게시글 정보를 불러오지 못했습니다.')
       } finally {
         setLoading(false)
       }
     }
 
-    if (postId) {
-      initData()
-    }
+    loadData()
   }, [postId])
 
-  // 툴바 헬퍼 (마크다운 태그 감싸기)
-  const insertFormatting = (prefix: string, suffix = '') => {
-    const el = textareaRef.current
-    if (!el) return
-    const start = el.selectionStart
-    const end = el.selectionEnd
-    const selected = content.slice(start, end) || '텍스트'
-    const next = content.slice(0, start) + prefix + selected + suffix + content.slice(end)
-    setContent(next)
-    setTimeout(() => {
-      el.focus()
-      el.setSelectionRange(start + prefix.length, end + prefix.length)
-    }, 0)
+  // 카테고리 탭 클릭 토글 핸들러
+  const toggleCategory = (catId: number) => {
+    setSelectedCategoryIds(prev =>
+      prev.includes(catId) ? prev.filter(id => id !== catId) : [...prev, catId]
+    )
   }
 
+  // 에디터 서식 삽입 도구 유틸리티
+  const insertFormatting = (prefix: string, suffix = '') => {
+    if (editorMode === 'code' && textareaRef.current) {
+      const textarea = textareaRef.current
+      const start = textarea.selectionStart
+      const end = textarea.selectionEnd
+      const selectedText = codeContent.substring(start, end) || '텍스트'
+      const replacement = `${prefix}${selectedText}${suffix}`
+
+      const newContent = codeContent.substring(0, start) + replacement + codeContent.substring(end)
+      setCodeContent(newContent)
+
+      setTimeout(() => {
+        textarea.focus()
+        textarea.setSelectionRange(start + prefix.length, start + prefix.length + selectedText.length)
+      }, 0)
+    } else {
+      // 비주얼 모드일 때
+      document.execCommand('styleWithCSS', false, 'true')
+      if (prefix === '**') document.execCommand('bold')
+      else if (prefix === '*') document.execCommand('italic')
+      else if (prefix === '## ') document.execCommand('formatBlock', false, 'H2')
+      else if (prefix === '### ') document.execCommand('formatBlock', false, 'H3')
+      else if (prefix === '> ') document.execCommand('formatBlock', false, 'BLOCKQUOTE')
+      else if (prefix === '- ') document.execCommand('insertUnorderedList')
+    }
+  }
+
+  // 모드 전환 핸들러
+  const switchToVisual = () => {
+    // 코드 모드에서 비주얼로 전환 시: codeContent는 그대로 유지 (rawContent는 원본 DB 이미지를 보존하고 있음)
+    setEditorMode('visual')
+  }
+
+  const switchToCode = () => {
+    // 비주얼에서 코드 전환 시: 비주얼 contentEditable의 현재 HTML을 읽어서 이미지를 태그로 치환
+    if (visualContentRef.current) {
+      const visualHtml = visualContentRef.current.innerHTML
+      setCodeContent(replaceBase64WithImageTags(visualHtml))
+      setRawContent(visualHtml)
+    }
+    setEditorMode('code')
+  }
+
+  // 2. 수정 제출 (PUT /api/posts/[id]) - 원본 이미지 건드리지 않고 텍스트만 반영!
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!title.trim() || !content.trim()) {
-      alert('제목과 본문 내용을 모두 입력해 주세요.')
+    if (!title.trim()) {
+      alert('제목을 입력해주세요.')
       return
     }
 
     try {
       setSaving(true)
-      setError(null)
 
-      // 5MB 바이너리를 네트워크로 보내지 않고 수정한 5KB 마크다운 텍스트만 초경량 전송
+      // 어떤 모드든 이미지를 [첨부 이미지 N] 태그로 치환하여 경량 전송
+      let finalContent: string
+      if (editorMode === 'visual' && visualContentRef.current) {
+        finalContent = replaceBase64WithImageTags(visualContentRef.current.innerHTML)
+      } else {
+        finalContent = codeContent
+      }
+
       const res = await fetch(`/api/posts/${postId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: title.trim(),
-          excerpt: excerpt.trim(),
-          content: content.trim(),
-          categoryId: selectedCategoryId,
-        }),
+          title,
+          excerpt,
+          content: finalContent,
+          category_ids: selectedCategoryIds
+        })
       })
 
-      const json = await res.json()
+      let json: any = {}
+      try {
+        json = await res.json()
+      } catch (e) {
+        json = { error: '서버 응답 파싱 실패 (Status: ' + res.status + ')' }
+      }
 
       if (res.ok && json.success) {
         alert('게시글이 성공적으로 수정되었습니다.')
-        router.push(`/posts/${postId}`)
-        router.refresh()
+        window.location.href = `/posts/${postId}`
       } else {
-        const errorDetail = json.details ? JSON.stringify(json.details) : ''
-        setError(json.error || `수정 저장 중 오류가 발생했습니다. ${errorDetail}`)
+        alert('수정 실패: ' + (json.error || '알 수 없는 오류 (Status: ' + res.status + ')'))
       }
     } catch (err: any) {
-      setError('서버 통신 중 오류가 발생했습니다.')
+      console.error('[Edit Submit Error]:', err)
+      alert('서버 통신 오류: ' + (err.message || String(err)))
     } finally {
       setSaving(false)
     }
@@ -236,230 +212,217 @@ export default function PostEditPage({ params }: PostEditPageProps) {
 
   if (loading) {
     return (
-      <div className="min-h-[60vh] flex flex-col items-center justify-center space-y-4">
-        <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-        <p className="text-sm font-medium text-slate-600">게시글 텍스트 정제 및 에디터를 불러오는 중...</p>
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-8 text-white">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm font-semibold text-slate-400">듀얼 에디터 환경을 로딩하는 중입니다...</p>
+        </div>
       </div>
     )
   }
 
-  if (error && !title) {
+  if (error) {
     return (
-      <div className="max-w-2xl mx-auto py-16 px-4 text-center">
-        <div className="bg-red-50 text-red-700 p-6 rounded-2xl border border-red-100 mb-6">
-          <p className="font-semibold text-lg">⚠️ {error}</p>
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-8 text-white">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 max-w-md w-full text-center space-y-4 shadow-2xl">
+          <div className="w-12 h-12 rounded-full bg-red-500/10 border border-red-500/20 text-red-400 flex items-center justify-center mx-auto text-xl font-bold">
+            ⚠️
+          </div>
+          <h2 className="text-lg font-bold text-white">{error}</h2>
+          <Link
+            href={`/posts/${postId}`}
+            className="inline-block px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm rounded-xl transition-all cursor-pointer no-underline shadow-md"
+          >
+            ← 게시글로 돌아가기
+          </Link>
         </div>
-        <Link
-          href={`/posts/${postId}`}
-          className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-900 text-white rounded-xl font-medium text-sm hover:bg-slate-800 transition-all"
-        >
-          ← 게시글로 돌아가기
-        </Link>
       </div>
     )
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 flex flex-col font-sans">
-      {/* 상단 헤더 바 */}
-      <header className="sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-slate-200 shadow-sm">
-        <div className="max-w-[1600px] mx-auto px-6 h-14 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <Link href="/" className="text-xl font-black text-indigo-600 no-underline">
-              AutoBlog
-            </Link>
-            <span className="text-xs font-bold text-slate-300">|</span>
-            <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-full">
-              ✨ 게시글 내용 수정 에디터
-            </span>
-          </div>
-
-          <div className="flex items-center gap-3">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+      {/* Header Bar */}
+      <header className="border-b border-slate-800 bg-slate-950/90 backdrop-blur sticky top-0 z-30 px-6 py-4">
+        <div className="max-w-5xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-4">
             <Link
               href={`/posts/${postId}`}
-              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all no-underline"
+              className="text-slate-400 hover:text-white text-sm font-semibold transition-colors no-underline flex items-center gap-1"
             >
-              취소
+              ← 취소
             </Link>
-            <button
-              onClick={handleSubmit}
-              disabled={saving}
-              className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50"
-            >
-              {saving ? (
-                <>
-                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  저장 중...
-                </>
-              ) : (
-                <>✨ 수정 완료 및 발행</>
-              )}
-            </button>
+            <div className="flex items-center gap-2">
+              <span className="text-xl">✏️</span>
+              <h1 className="text-lg font-bold text-white">스마트 에디터 (수정 페이지)</h1>
+            </div>
           </div>
+          <button
+            onClick={handleSubmit}
+            disabled={saving}
+            style={{ backgroundColor: '#dc2626', color: '#ffffff', border: 'none' }}
+            className="px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white text-sm font-extrabold rounded-xl shadow-lg shadow-red-600/30 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+          >
+            {saving ? '수정 중...' : '✓ 수정 완료'}
+          </button>
         </div>
       </header>
 
-      {error && (
-        <div className="max-w-[1600px] mx-auto px-6 mt-4">
-          <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs font-medium">
-            ⚠️ {error}
-          </div>
-        </div>
-      )}
-
-      {/* 좌우 분할 에디터 컨테이너 */}
-      <div className="flex-1 max-w-[1600px] w-full mx-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
-        {/* ================= 좌측: 순수 글 제목 & 내용 수정 폼 ([첨부이미지 N] 대체) ================= */}
-        <div className="flex flex-col bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
-          {/* 카테고리 선택 */}
-          <div>
-            <label className="block text-xs font-bold text-slate-600 mb-1.5 flex items-center gap-1">
-              <span>🏷️ 게시글 카테고리 선택</span>
+      {/* Main Single Column Editor */}
+      <main className="max-w-5xl mx-auto w-full px-6 py-8 flex-1 flex flex-col space-y-6">
+        {/* 1. 카테고리 선택 탭 */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3 shadow-lg">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-bold text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
+              <span>📂</span> 카테고리 설정 (다중 선택 가능)
             </label>
-            <select
-              value={selectedCategoryId ?? ''}
-              onChange={(e) => setSelectedCategoryId(e.target.value ? Number(e.target.value) : null)}
-              className="w-full text-xs font-bold text-indigo-700 bg-indigo-50/70 p-3 rounded-xl border border-indigo-200 focus:outline-none focus:bg-white focus:border-indigo-500 transition-all cursor-pointer"
-            >
-              <option value="">카테고리 선택 (선택 안함)</option>
-              {categories.map((cat) => (
-                <option key={cat.id} value={cat.id}>
-                  {cat.name} ({cat.slug})
-                </option>
-              ))}
-            </select>
+            <span className="text-xs text-slate-400 font-medium">
+              {selectedCategoryIds.length}개 선택됨
+            </span>
           </div>
-
-          {/* 제목 입력 */}
-          <div>
-            <label className="block text-xs font-bold text-slate-500 mb-1">게시글 제목</label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="게시글 제목을 입력하세요..."
-              className="w-full text-lg sm:text-xl font-bold text-slate-900 border-b border-slate-200 pb-2 focus:outline-none focus:border-indigo-600 transition-colors"
-            />
-          </div>
-
-          {/* 요약문 입력 */}
-          <div>
-            <label className="block text-xs font-bold text-slate-500 mb-1">요약글 (Excerpt)</label>
-            <input
-              type="text"
-              value={excerpt}
-              onChange={(e) => setExcerpt(e.target.value)}
-              placeholder="게시글 요약 내용을 입력하세요..."
-              className="w-full text-xs font-medium text-slate-700 bg-slate-50 p-2.5 rounded-xl border border-slate-200 focus:outline-none focus:bg-white focus:border-indigo-500 transition-all"
-            />
-          </div>
-
-          {/* 서식 툴바 */}
-          <div className="flex items-center gap-1 p-1.5 bg-slate-100/80 rounded-xl border border-slate-200/60 overflow-x-auto">
-            <button
-              type="button"
-              onClick={() => insertFormatting('**', '**')}
-              className="px-2.5 py-1 text-xs font-bold text-slate-700 hover:bg-white rounded-lg transition-all"
-              title="굵게 (Bold)"
-            >
-              <b>B</b>
-            </button>
-            <button
-              type="button"
-              onClick={() => insertFormatting('*', '*')}
-              className="px-2.5 py-1 text-xs font-bold text-slate-700 hover:bg-white rounded-lg transition-all italic"
-              title="기울임 (Italic)"
-            >
-              <i>I</i>
-            </button>
-            <button
-              type="button"
-              onClick={() => insertFormatting('`', '`')}
-              className="px-2.5 py-1 text-xs font-mono font-bold text-slate-700 hover:bg-white rounded-lg transition-all"
-              title="인라인 코드"
-            >
-              &lt;/&gt;
-            </button>
-            <span className="text-slate-300">|</span>
-            <button
-              type="button"
-              onClick={() => insertFormatting('[', '](https://)')}
-              className="px-2.5 py-1 text-xs font-bold text-slate-700 hover:bg-white rounded-lg transition-all"
-              title="링크 삽입"
-            >
-              🔗
-            </button>
-            <button
-              type="button"
-              onClick={() => insertFormatting('![이미지 설명](', ')')}
-              className="px-2.5 py-1 text-xs font-bold text-slate-700 hover:bg-white rounded-lg transition-all"
-              title="이미지 삽입"
-            >
-              🖼️
-            </button>
-            <button
-              type="button"
-              onClick={() => insertFormatting('\n## ')}
-              className="px-2.5 py-1 text-xs font-bold text-slate-700 hover:bg-white rounded-lg transition-all"
-              title="소제목 (H2)"
-            >
-              H2
-            </button>
-            <button
-              type="button"
-              onClick={() => insertFormatting('\n> ')}
-              className="px-2.5 py-1 text-xs font-bold text-slate-700 hover:bg-white rounded-lg transition-all"
-              title="인용구 (Quote)"
-            >
-              &quot;
-            </button>
-          </div>
-
-          {/* 순수 본문 내용 에디터 ([첨부이미지 1, 2, 3] 플레이스홀더 치환) */}
-          <div className="flex-1 flex flex-col">
-            <textarea
-              ref={textareaRef}
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              placeholder="게시글 본문 내용을 수정하세요..."
-              rows={22}
-              className="w-full h-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 font-mono text-sm leading-relaxed focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500 transition-all resize-y"
-            />
+          <div className="flex items-center gap-2 flex-wrap pt-1">
+            {categories.map((cat) => {
+              const isSelected = selectedCategoryIds.includes(cat.id)
+              return (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => toggleCategory(cat.id)}
+                  style={{
+                    backgroundColor: isSelected ? '#2563eb' : '#1e293b',
+                    color: isSelected ? '#ffffff' : '#94a3b8',
+                    fontWeight: isSelected ? '800' : '600',
+                    border: isSelected ? '1px solid #3b82f6' : '1px solid #334155',
+                    boxShadow: isSelected ? '0 4px 10px rgba(37, 99, 235, 0.3)' : 'none',
+                    padding: '7px 16px',
+                    borderRadius: '9999px',
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease-in-out',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px'
+                  }}
+                >
+                  {isSelected && <span style={{ fontSize: '12px' }}>✓</span>}
+                  {cat.name}
+                </button>
+              )
+            })}
           </div>
         </div>
 
-        {/* ================= 우측: 좌측 [첨부이미지 N] ➔ 원본 실사 이미지 1:1 복원 렌더링 ================= */}
-        <div className="flex flex-col bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-          <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-              🎨 실시간 결과 미리보기 (Visual Live Preview)
-            </span>
-            <span className="text-xs font-medium text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full">
-              Live Synced & Image Restored
-            </span>
+        {/* 2. 제목 */}
+        <div className="space-y-2">
+          <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider">제목</label>
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="게시글 제목을 입력하세요..."
+            style={{ backgroundColor: '#0f172a', color: '#ffffff', borderColor: '#1e293b' }}
+            className="w-full rounded-2xl px-5 py-4 text-white text-lg font-extrabold placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors shadow-inner border"
+          />
+        </div>
+
+        {/* 3. 요약 설명 */}
+        <div className="space-y-2">
+          <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider">요약 설명 (Excerpt)</label>
+          <textarea
+            rows={2}
+            value={excerpt}
+            onChange={(e) => setExcerpt(e.target.value)}
+            placeholder="게시글 요약 문구를 입력하세요..."
+            style={{ backgroundColor: '#0f172a', color: '#f1f5f9', borderColor: '#1e293b' }}
+            className="w-full rounded-2xl p-4 text-slate-100 text-sm focus:outline-none focus:border-blue-500 transition-colors resize-none shadow-inner border"
+          />
+        </div>
+
+        {/* 4. 듀얼 에디터 (비주얼 / 코드 탭 전환) */}
+        <div
+          style={{ backgroundColor: '#0f172a', borderColor: '#1e293b' }}
+          className="flex-1 flex flex-col border rounded-2xl overflow-hidden shadow-2xl"
+        >
+          {/* Editor Top Bar: Toolbar + Mode Switcher */}
+          <div
+            style={{ backgroundColor: '#020617', borderColor: '#1e293b' }}
+            className="border-b p-3 flex items-center justify-between gap-3 flex-wrap"
+          >
+            {/* Left: Formatting Buttons */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-xs font-bold text-slate-400 mr-2 flex items-center gap-1">
+                <span>🛠️</span> 서식:
+              </span>
+              <button type="button" onClick={() => insertFormatting('**', '**')} className="px-3 py-1.5 bg-slate-800 hover:bg-blue-600 hover:text-white text-slate-200 text-xs font-bold rounded-lg transition-colors cursor-pointer border border-slate-700" title="굵게">B 굵게</button>
+              <button type="button" onClick={() => insertFormatting('*', '*')} className="px-3 py-1.5 bg-slate-800 hover:bg-blue-600 hover:text-white text-slate-200 text-xs font-bold italic rounded-lg transition-colors cursor-pointer border border-slate-700" title="기울임">I 기울임</button>
+              <div className="w-[1px] h-4 bg-slate-700 mx-1" />
+              <button type="button" onClick={() => insertFormatting('## ')} className="px-3 py-1.5 bg-slate-800 hover:bg-blue-600 hover:text-white text-slate-200 text-xs font-bold rounded-lg transition-colors cursor-pointer border border-slate-700" title="H2">H2</button>
+              <button type="button" onClick={() => insertFormatting('### ')} className="px-3 py-1.5 bg-slate-800 hover:bg-blue-600 hover:text-white text-slate-200 text-xs font-bold rounded-lg transition-colors cursor-pointer border border-slate-700" title="H3">H3</button>
+              <div className="w-[1px] h-4 bg-slate-700 mx-1" />
+              <button type="button" onClick={() => insertFormatting('> ')} className="px-3 py-1.5 bg-slate-800 hover:bg-blue-600 hover:text-white text-slate-200 text-xs font-bold rounded-lg transition-colors cursor-pointer border border-slate-700" title="인용구">💬 인용</button>
+              <button type="button" onClick={() => insertFormatting('- ')} className="px-3 py-1.5 bg-slate-800 hover:bg-blue-600 hover:text-white text-slate-200 text-xs font-bold rounded-lg transition-colors cursor-pointer border border-slate-700" title="목록">• 목록</button>
+            </div>
+
+            {/* Right: Mode Switcher */}
+            <div className="flex items-center bg-slate-900 border border-slate-800 rounded-xl p-1 gap-1">
+              <button
+                type="button"
+                onClick={switchToVisual}
+                style={{
+                  backgroundColor: editorMode === 'visual' ? '#2563eb' : 'transparent',
+                  color: editorMode === 'visual' ? '#ffffff' : '#94a3b8',
+                  fontWeight: editorMode === 'visual' ? '800' : '600'
+                }}
+                className="px-4 py-1.5 text-xs rounded-lg transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                <span>👁️</span> 비주얼
+              </button>
+              <button
+                type="button"
+                onClick={switchToCode}
+                style={{
+                  backgroundColor: editorMode === 'code' ? '#2563eb' : 'transparent',
+                  color: editorMode === 'code' ? '#ffffff' : '#94a3b8',
+                  fontWeight: editorMode === 'code' ? '800' : '600'
+                }}
+                className="px-4 py-1.5 text-xs rounded-lg transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                <span>&lt;/&gt;</span> 코드 (HTML)
+              </button>
+            </div>
           </div>
 
-          {/* 블로그 상세 페이지와 100% 동일한 시각적 예쁜 렌더링 영역 */}
-          <div className="flex-1 overflow-y-auto max-h-[750px] pr-2 space-y-6">
-            <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight leading-snug">
-              {title || '제목이 여기에 표시됩니다'}
-            </h1>
-
-            {excerpt && (
-              <blockquote className="border-l-4 border-indigo-500 bg-indigo-50/70 text-slate-800 p-4 rounded-r-xl text-sm font-medium leading-relaxed">
-                {excerpt}
-              </blockquote>
-            )}
-
+          {/* Visual Mode: 실제 이미지가 렌더링된 WYSIWYG 에디터 */}
+          {editorMode === 'visual' && (
             <div
-              className="prose prose-slate max-w-none text-slate-800 space-y-4 text-sm sm:text-base leading-relaxed"
-              dangerouslySetInnerHTML={{ __html: htmlPreview }}
+              ref={visualContentRef}
+              contentEditable
+              suppressContentEditableWarning
+              style={{ backgroundColor: '#0f172a', color: '#f8fafc', outline: 'none' }}
+              className="w-full p-8 font-sans text-base leading-relaxed focus:outline-none min-h-[500px] prose prose-invert max-w-none"
+              dangerouslySetInnerHTML={{ __html: rawContent }}
             />
-          </div>
-        </div>
+          )}
 
-      </div>
-    </main>
+          {/* Code Mode: [첨부 이미지 N] 태그로 경량화된 소스코드 에디터 */}
+          {editorMode === 'code' && (
+            <div className="relative">
+              <div className="absolute top-3 right-4 text-xs text-blue-400 font-bold flex items-center gap-1 bg-blue-950/60 px-3 py-1 rounded-full border border-blue-800/50 z-10">
+                <span>🖼️</span> [첨부 이미지 N] = 원본 이미지 보존 위치
+              </div>
+              <textarea
+                ref={textareaRef}
+                rows={20}
+                value={codeContent}
+                onChange={(e) => setCodeContent(e.target.value)}
+                placeholder="HTML 또는 마크다운 코드를 입력하세요..."
+                style={{ backgroundColor: '#0f172a', color: '#38bdf8' }}
+                className="w-full p-6 pt-12 text-sky-400 font-mono text-sm leading-relaxed focus:outline-none resize-y min-h-[500px]"
+              />
+            </div>
+          )}
+        </div>
+      </main>
+    </div>
   )
 }

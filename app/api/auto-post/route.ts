@@ -10,12 +10,13 @@ export async function POST(request: NextRequest) {
     // 단일 topic 또는 세부 options 객체 수신 지원
     const options: AutoPostOptions = {
       topic: body.topic || body.keyword || body.query || '',
+      categorySlug: body.category_slug || body.categorySlug,
       tone: body.tone,
-      targetAudience: body.targetAudience,
-      wordCount: body.wordCount ? Number(body.wordCount) : undefined,
+      targetAudience: body.targetAudience || body.target_audience,
+      wordCount: body.wordCount ? Number(body.wordCount) : body.target_word_count ? Number(body.target_word_count) : undefined,
       keywords: Array.isArray(body.keywords) ? body.keywords : body.keywords ? [body.keywords] : undefined,
-      referenceUrls: Array.isArray(body.referenceUrls) ? body.referenceUrls : body.referenceUrl ? [body.referenceUrl] : undefined,
-      customInstructions: body.customInstructions,
+      referenceUrls: Array.isArray(body.referenceUrls) ? body.referenceUrls : Array.isArray(body.reference_urls) ? body.reference_urls : body.referenceUrl ? [body.referenceUrl] : undefined,
+      customInstructions: body.customInstructions || body.custom_prompt,
       nanoBananaApiKey: body.nanoBananaApiKey || body.apiKey,
       imageModel: body.imageModel || body.nanoBananaModel || 'nanobanana-2-2k',
       cta: body.cta && (body.cta.text || body.cta.url) ? { text: body.cta.text || '자세히 보기', url: body.cta.url || '#' } : undefined,
@@ -43,18 +44,41 @@ export async function POST(request: NextRequest) {
     const { data: authors } = await supabase.from('blog_authors').select('id').limit(1)
     let authorId: number = authors && authors.length > 0 ? authors[0].id : 1
 
-    // 3.2 카테고리 ID 가져오기
-    const { data: categoryData } = await supabase
-      .from('blog_categories')
-      .select('id')
-      .eq('slug', postData.categorySlug)
-      .maybeSingle()
+    // 3.2 카테고리 ID 가져오기 (다중 카테고리 지원)
+    const requestCategorySlugs: string[] = Array.isArray(body.category_slugs)
+      ? body.category_slugs
+      : Array.isArray(body.categorySlugs)
+      ? body.categorySlugs
+      : body.category_slug || body.categorySlug
+      ? [body.category_slug || body.categorySlug]
+      : []
 
-    let categoryId = categoryData?.id
+    let targetCategoryIds: number[] = []
 
-    if (!categoryId) {
-      const { data: firstCategory } = await supabase.from('blog_categories').select('id').limit(1).single()
-      categoryId = firstCategory?.id ?? 1
+    if (requestCategorySlugs.length > 0) {
+      const { data: matchedCats } = await supabase
+        .from('blog_categories')
+        .select('id')
+        .in('slug', requestCategorySlugs)
+
+      if (matchedCats && matchedCats.length > 0) {
+        targetCategoryIds = matchedCats.map((c: any) => c.id)
+      }
+    }
+
+    if (targetCategoryIds.length === 0) {
+      const { data: catData } = await supabase
+        .from('blog_categories')
+        .select('id')
+        .eq('slug', postData.categorySlug)
+        .maybeSingle()
+
+      if (catData?.id) {
+        targetCategoryIds.push(catData.id)
+      } else {
+        const { data: firstCategory } = await supabase.from('blog_categories').select('id').limit(1).single()
+        if (firstCategory?.id) targetCategoryIds.push(firstCategory.id)
+      }
     }
 
     // 3.3 blog_posts 테이블에 등록 (PostgreSQL DEFAULT IDENTITY 시퀀스 사용)
@@ -66,7 +90,6 @@ export async function POST(request: NextRequest) {
         content: postData.contentHtml,
         author_id: authorId,
         reading_minutes: postData.readingMinutes,
-        like_count: 0,
       })
       .select('id, title, published_at')
       .single()
@@ -82,12 +105,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 3.4 blog_post_categories 매핑 등록
-    if (categoryId) {
-      await supabase.from('blog_post_categories').insert({
+    // 3.4 blog_post_categories 다중 매핑 등록
+    if (targetCategoryIds.length > 0) {
+      const pcRows = targetCategoryIds.map((cid) => ({
         post_id: createdPost.id,
-        category_id: categoryId,
-      })
+        category_id: cid,
+      }))
+      await supabase.from('blog_post_categories').insert(pcRows)
     }
 
     const postUrl = `/posts/${createdPost.id}`

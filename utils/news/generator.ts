@@ -4,6 +4,7 @@ import { generateNanoBananaImages } from './imageGenerator'
 
 export interface AutoPostOptions {
   topic: string
+  categorySlug?: string
   tone?: string
   targetAudience?: string
   wordCount?: number
@@ -88,12 +89,12 @@ async function generateWithGemini(
 당신은 대한민국 최고의 SEO 블로그 전문 에디터입니다.
 구글과 네이버 검색엔진이 선호하는 고품질 SEO 맞춤 포스트를 지정된 JSON 형식으로 생성해 주세요.
 
-[메인 및 서브 키워드 정보]:
+[주제 및 키워드 정보]:
+- 주제: ${options.topic}
 - 메인 키워드: ${mainKeyword}
 - 서브 키워드1: ${subKey1}
 - 서브 키워드2: ${subKey2}
 - 서브 키워드3: ${subKey3}
-- 서브 키워드4: ${subKey4}
 
 [24시간 실시간 뉴스 컨텍스트]:
 ${newsData.summaryPromptContext}
@@ -104,22 +105,32 @@ ${audienceRule}
 ${wordCountRule}
 ${referenceRule}
 ${customRule}
-- ★ [가독성 필수 지침]: 각 문단("1문단", "2문단", "3문단", "4문단", "종합 및 의견")은 절대로 긴 글로 통째로 뭉쳐서 작성하지 마세요. 반드시 2~3문장마다 줄바꿈(\n\n)을 넣어 읽기 쉬운 소문단 형태로 나누어 서술해야 합니다.
+
+[★ 글쓰기 필수 요구 규칙]:
+1. 제목: 매력적이고 SEO에 적합하며 관련 키워드가 자연스럽게 조합된 제목으로 작성하세요.
+2. 소제목 및 문단 구성: { "제목", "요약글", "소제목 1", "소제목 2", "소제목 3", "문단 1", "문단 2", "문단 3" } 3개의 독립적인 소제목과 문단으로 구성하세요.
+3. 태그 사용 필수 룰:
+   - 각 문단의 소제목("소제목 1", "소제목 2", "소제목 3")은 마크다운 ## (<h2>) 태그로 표현됩니다.
+   - 글 전체 내용 중 구체적 세부 설명 부분에 마크다운 ### (<h3>) 태그를 정확히 3번 사용하세요.
+   - 글 전체 내용 중 리스트 또는 핵심 질문/답변 목록 부분에 마크다운 - (<li>) 태그를 2번 이상 사용하세요.
+4. 분량 및 딥다이브 설명:
+   - 각 문단("문단 1", "문단 2", "문단 3")은 구체적인 정보, 설명, 풍부한 예시를 포함하여 총 전체 글자 수가 공백 제외 2,000자 이상이 되도록 길고 풍부하게 작성하세요.
+5. 가독성 및 톤앤매너:
+   - 정보성 글을 작성하되, 사람들이 끝까지 읽기 편하도록 대학생 수준에서 편하게 읽을 수 있는 명확하고 친절한 어조로 작성하세요.
+   - 구글 검색 사용자의 검색 의도를 고려하여 질의-답변(Q&A) 구조와 명쾌한 해결책을 제시하세요.
+   - 2~3문장마다 줄바꿈(\n\n)을 넣어 가독성을 극대화하세요.
 
 [필수 지침 - JSON 출력 구조]:
-아래 11개 키를 포함하는 순수한 JSON 형식으로 출력하세요 (추가 설명/마크다운 백틱 없이 순수 JSON만 출력):
+아래 8개 키를 포함하는 순수한 JSON 형식으로 출력하세요 (추가 설명/마크다운 백틱 없이 순수 JSON만 출력):
 {
-  "제목": "매력적이고 SEO에 최적화된 포스트 제목 1개",
+  "제목": "매력적이고 SEO에 최적화된 포스트 제목",
   "요약글": "핵심 내용을 요약한 2~3문장 서술",
-  "소제목 1": "${subKey1} 관련 매력적인 소제목",
-  "소제목 2": "${subKey2} 관련 매력적인 소제목",
-  "소제목 3": "${subKey3} 관련 매력적인 소제목",
-  "소제목 4": "${subKey4} 관련 매력적인 소제목",
-  "1문단": "소제목1 관련 딥다이브 분석 (2~3문장마다 \n\n으로 줄바꿈하여 소문단 분할)",
-  "2문단": "소제목2 관련 딥다이브 분석 (2~3문장마다 \n\n으로 줄바꿈하여 소문단 분할)",
-  "3문단": "소제목3 관련 딥다이브 분석 (2~3문장마다 \n\n으로 줄바꿈하여 소문단 분할)",
-  "4문단": "소제목4 관련 딥다이브 분석 (2~3문장마다 \n\n으로 줄바꿈하여 소문단 분할)",
-  "종합 및 의견": "전체 내용을 종합 정리하고 향후 전망 및 전문가 의견 제시 (2~3문장마다 \n\n으로 줄바꿈)"
+  "소제목 1": "${subKey1} 관련 매력적인 1번 소제목",
+  "소제목 2": "${subKey2} 관련 매력적인 2번 소제목",
+  "소제목 3": "${subKey3} 관련 매력적인 3번 소제목",
+  "문단 1": "소제목 1에 해당하는 구체적이고 풍부한 설명, 예시, H3 및 LI 태그 포함 문단 (2~3문장마다 \n\n 줄바꿈)",
+  "문단 2": "소제목 2에 해당하는 구체적이고 풍부한 설명, 예시, H3 및 LI 태그 포함 문단 (2~3문장마다 \n\n 줄바꿈)",
+  "문단 3": "소제목 3에 해당하는 구체적이고 풍부한 설명, 예시, H3 및 LI 태그 포함 문단 (2~3문장마다 \n\n 줄바꿈)"
 }
 `.trim()
 
@@ -142,16 +153,14 @@ ${customRule}
         const title = parsed['제목'] || `[SEO] ${options.topic} 완벽 가이드`
         const excerpt = parsed['요약글'] || `${options.topic}에 관한 심층 분석 리포트입니다.`
 
-        const body1Text = formatReadableParagraphs(parsed['1문단'] || '')
-        const body2Text = formatReadableParagraphs(parsed['2문단'] || '')
-        const body3Text = formatReadableParagraphs(parsed['3문단'] || '')
-        const body4Text = formatReadableParagraphs(parsed['4문단'] || '')
-        const conclusionText = formatReadableParagraphs(parsed['종합 및 의견'] || '')
+        const body1Text = formatReadableParagraphs(parsed['문단 1'] || parsed['1문단'] || '')
+        const body2Text = formatReadableParagraphs(parsed['문단 2'] || parsed['2문단'] || '')
+        const body3Text = formatReadableParagraphs(parsed['문단 3'] || parsed['3문단'] || '')
 
         const hashtags = generateHashtags(options.topic, keywordsList, parsed)
 
-        // ★ [핵심] 완성된 본문 텍스트 전체를 AI Visual Director가 읽고 이해한 후 100% 매칭 3개 프롬프트를 뽑아 이미지 생성
-        console.log('[AI Post Generator] Analyzing generated article text to create 100% context-matching image prompts...')
+        // ★ [핵심] 생성된 3개 문단의 본문 내용을 정독하여 각각 100% 매칭되는 독창적 3개 영문 프롬프트 생성 후 이미지 매핑
+        console.log('[AI Post Generator] Analyzing 3 paragraph contents to create 100% matching unique image prompts...')
         const images = await generateNanoBananaImages(
           options.topic,
           keywordsList,
@@ -163,36 +172,30 @@ ${customRule}
             excerpt,
             body1Text,
             body2Text,
-            body4Text,
+            body4Text: body3Text,
           }
         )
 
         const contentMarkdown = `
-![${options.topic} 대표 이미지](${images.headerImage})
+> **요약**: ${excerpt}
 
-## ${parsed['소제목 1']}
+## ${parsed['소제목 1'] || subKey1}
+
+![${parsed['소제목 1'] || subKey1} 비주얼](${images.headerImage})
 
 ${body1Text}
 
-## ${parsed['소제목 2']}
+## ${parsed['소제목 2'] || subKey2}
 
-![${parsed['소제목 2']} 상세 이미지](${images.bodyImage1})
+![${parsed['소제목 2'] || subKey2} 비주얼](${images.bodyImage1})
 
 ${body2Text}
 
-## ${parsed['소제목 3']}
+## ${parsed['소제목 3'] || subKey3}
+
+![${parsed['소제목 3'] || subKey3} 비주얼](${images.bodyImage2})
 
 ${body3Text}
-
-## ${parsed['소제목 4']}
-
-![${parsed['소제목 4']} 상세 이미지](${images.bodyImage2})
-
-${body4Text}
-
-## 5. 결론 및 전문가 제언
-
-${conclusionText}
 
 ${
   options.cta?.text && options.cta?.url
@@ -216,35 +219,35 @@ ${hashtags}
 
 본 포스트의 3개 이미지 생성 시 나노바나나/제미나이 AI 엔진에 전달된 100% 문맥 일치 영문 실사 프롬프트 및 **실제 전송된 정식 API 요청 스키마 페이로드(Request Payload Schema)**입니다.
 
-#### 1. 대표 썸네일 이미지 프롬프트 (Header Visual)
-\u0060\u0060\u0060text
+#### 1. 1번 문단 이미지 프롬프트 (Paragraph 1 Visual)
+\`\`\`text
 ${images.headerPrompt || ''}
-\u0060\u0060\u0060
+\`\`\`
 
-> **⚙️ 1번 이미지 생성 시 전송된 API 요청 스키마 (Header Schema Payload)**
-\u0060\u0060\u0060json
+> **⚙️ 1번 이미지 생성 시 전송된 API 요청 스키마 (Paragraph 1 Payload)**
+\`\`\`json
 ${images.headerSchema || ''}
-\u0060\u0060\u0060
+\`\`\`
 
-#### 2. 기술 메커니즘 이미지 프롬프트 (Section 2 Visual)
-\u0060\u0060\u0060text
+#### 2. 2번 문단 이미지 프롬프트 (Paragraph 2 Visual)
+\`\`\`text
 ${images.body1Prompt || ''}
-\u0060\u0060\u0060
+\`\`\`
 
-> **⚙️ 2번 이미지 생성 시 전송된 API 요청 스키마 (Section 2 Schema Payload)**
-\u0060\u0060\u0060json
+> **⚙️ 2번 이미지 생성 시 전송된 API 요청 스키마 (Paragraph 2 Payload)**
+\`\`\`json
 ${images.body1Schema || ''}
-\u0060\u0060\u0060
+\`\`\`
 
-#### 3. 미래 파급력 이미지 프롬프트 (Section 3 Visual)
-\u0060\u0060\u0060text
+#### 3. 3번 문단 이미지 프롬프트 (Paragraph 3 Visual)
+\`\`\`text
 ${images.body2Prompt || ''}
-\u0060\u0060\u0060
+\`\`\`
 
-> **⚙️ 3번 이미지 생성 시 전송된 API 요청 스키마 (Section 3 Schema Payload)**
-\u0060\u0060\u0060json
+> **⚙️ 3번 이미지 생성 시 전송된 API 요청 스키마 (Paragraph 3 Payload)**
+\`\`\`json
 ${images.body2Schema || ''}
-\u0060\u0060\u0060
+\`\`\`
 `.trim()
 
         return { title, excerpt, contentMarkdown }
@@ -405,7 +408,7 @@ ${images.body2Schema || ''}
 
   const contentHtml = mdLiteToHtml(postData.contentMarkdown)
   const readingMinutes = estimateReadingMinutes(postData.contentMarkdown)
-  const categorySlug = inferCategorySlug(options.topic, newsData.topKeywords)
+  const categorySlug = options.categorySlug || inferCategorySlug(options.topic, newsData.topKeywords)
 
   return {
     title: postData.title,
