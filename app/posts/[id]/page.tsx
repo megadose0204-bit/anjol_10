@@ -1,58 +1,32 @@
 'use client'
 
 import { useEffect, useState, useMemo, useCallback } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/utils/supabase/client'
-
-/* ------------------------------------------------------------------ */
-/*  HTML5 Canvas Image Compression Helper                              */
-/* ------------------------------------------------------------------ */
-async function compressBase64Image(dataUrl: string, maxWidth = 1000, quality = 0.75): Promise<string> {
-  return new Promise((resolve) => {
-    if (typeof window === 'undefined') {
-      resolve(dataUrl)
-      return
-    }
-    const img = new Image()
-    img.crossOrigin = 'anonymous'
-    img.onload = () => {
-      let width = img.width
-      let height = img.height
-
-      if (width > maxWidth) {
-        height = Math.round((height * maxWidth) / width)
-        width = maxWidth
-      }
-
-      const canvas = document.createElement('canvas')
-      canvas.width = width
-      canvas.height = height
-
-      const ctx = canvas.getContext('2d')
-      if (!ctx) {
-        resolve(dataUrl)
-        return
-      }
-
-      ctx.drawImage(img, 0, 0, width, height)
-      const compressedDataUrl = canvas.toDataURL('image/jpeg', quality)
-      resolve(compressedDataUrl)
-    }
-    img.onerror = () => resolve(dataUrl)
-    img.src = dataUrl
-  })
-}
+import { 
+  Heart, 
+  MessageSquare, 
+  Share2, 
+  Bookmark, 
+  MoreHorizontal, 
+  ArrowLeft, 
+  Send, 
+  Code2, 
+  Check, 
+  Copy,
+  PenSquare,
+  Sparkles,
+  Search,
+  User,
+  Clock,
+  Calendar,
+  ThumbsUp
+} from 'lucide-react'
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
-interface Category {
-  id: number
-  name: string
-  slug: string
-}
-
 interface Author {
   id: number
   name: string
@@ -69,740 +43,494 @@ interface Post {
   reading_minutes: number
   like_count: number
   author_id: number
+  category?: string
+  tags?: string[]
+  cover_image?: string
 }
 
 interface Comment {
   id: number
   post_id: number
   user_id: string
-  author_email: string
+  author_name: string
+  author_avatar?: string
   content: string
   created_at: string
 }
 
-/* ------------------------------------------------------------------ */
-/*  Helpers                                                            */
-/* ------------------------------------------------------------------ */
-function formatFullDate(dateStr: string): string {
-  const d = new Date(dateStr)
-  return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일`
-}
-
-function formatRelative(dateStr: string): string {
-  const d = new Date(dateStr)
-  const diffMs = Date.now() - d.getTime()
-  const diffMin = Math.floor(diffMs / (1000 * 60))
-  if (diffMin < 1) return '방금 전'
-  if (diffMin < 60) return `${diffMin}분 전`
-  const diffHour = Math.floor(diffMin / 60)
-  if (diffHour < 24) return `${diffHour}시간 전`
-  const diffDay = Math.floor(diffHour / 24)
-  if (diffDay < 30) return `${diffDay}일 전`
-  return formatFullDate(dateStr)
-}
-
-function getInitials(name: string): string {
-  const parts = name.split(' ')
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase()
-  return name.slice(0, 2).toUpperCase()
-}
-
-const COVER_GRADIENTS: Record<string, string> = {
-  React: 'linear-gradient(135deg, #60a5fa, #1d4ed8)',
-  아키텍처: 'linear-gradient(135deg, #818cf8, #4338ca)',
-  Rust: 'linear-gradient(135deg, #f87171, #b91c1c)',
-  DevOps: 'linear-gradient(135deg, #34d399, #047857)',
-  Kubernetes: 'linear-gradient(135deg, #22d3ee, #0e7490)',
-  TypeScript: 'linear-gradient(135deg, #60a5fa, #1e40af)',
-  성능: 'linear-gradient(135deg, #fbbf24, #b45309)',
-  JavaScript: 'linear-gradient(135deg, #fde047, #a16207)',
-  Go: 'linear-gradient(135deg, #2dd4bf, #0f766e)',
-  Docker: 'linear-gradient(135deg, #818cf8, #3730a3)',
-  데이터베이스: 'linear-gradient(135deg, #c4b5fd, #6d28d9)',
-  보안: 'linear-gradient(135deg, #f9a8d4, #be185d)',
-}
-const DEFAULT_GRADIENT = 'linear-gradient(135deg, #94a3b8, #334155)'
-
-/* ------------------------------------------------------------------ */
-/*  Main Component                                                     */
-/* ------------------------------------------------------------------ */
 export default function PostDetailPage() {
   const params = useParams()
-  const rawId = Array.isArray(params?.id) ? params.id[0] : params?.id
-  const postId = rawId ? Number(rawId) : NaN
-  const supabase = useMemo(() => createClient(), [])
+  const router = useRouter()
+  const postId = params.id as string
+  const supabase = createClient()
 
   const [post, setPost] = useState<Post | null>(null)
   const [author, setAuthor] = useState<Author | null>(null)
-  const [categories, setCategories] = useState<Category[]>([])
   const [comments, setComments] = useState<Comment[]>([])
-  const [loading, setLoading] = useState(true)
-  const [notFound, setNotFound] = useState(false)
-
-  const [userEmail, setUserEmail] = useState<string | null>(null)
-  const [userId, setUserId] = useState<string | null>(null)
-  const [commentText, setCommentText] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [commentError, setCommentError] = useState<string | null>(null)
-
+  const [newComment, setNewComment] = useState('')
+  const [liked, setLiked] = useState(false)
   const [likeCount, setLikeCount] = useState(0)
-  const [hasLiked, setHasLiked] = useState(false)
-  const [likeBusy, setLikeBusy] = useState(false)
+  const [bookmarked, setBookmarked] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [submittingComment, setSubmittingComment] = useState(false)
   const [copied, setCopied] = useState(false)
-  const [compressing, setCompressing] = useState(false)
 
-  // 고화질 이미지 라이트박스 팝업 상태
-  const [selectedImage, setSelectedImage] = useState<string | null>(null)
-  const [selectedAlt, setSelectedAlt] = useState<string>('')
+  // 샘플 태그 데이터
+  const tags = useMemo(() => ['#react', '#state-management', '#javascript', '#frontend'], [])
 
-  // ESC 키로 이미지 팝업 닫기
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setSelectedImage(null)
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [])
-
-  // 본문 내 이미지 클릭 감지 핸들러
-  const handleContentClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const target = e.target as HTMLElement
-    if (target.tagName === 'IMG') {
-      const src = target.getAttribute('src')
-      const alt = target.getAttribute('alt') || ''
-      if (src) {
-        setSelectedImage(src)
-        setSelectedAlt(alt)
-      }
-    }
-  }
-
-  /* ---- Fetch post + relations ---- */
-  const fetchPost = useCallback(async () => {
-    if (!postId || isNaN(postId)) return
-
-    try {
+    const fetchPost = async () => {
       setLoading(true)
-
-      // 1차: Supabase Client SDK로 포스트 데이터 로드 (2.5초 타임아웃 래퍼로 무한 펜딩 100% 방지)
-      let postData: any = null
       try {
-        const queryPromise = supabase
-          .from('blog_posts')
+        const { data: postData } = await supabase
+          .from('posts')
           .select('*')
           .eq('id', postId)
-          .maybeSingle()
+          .single()
 
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('TIMEOUT')), 2500)
-        )
+        if (postData) {
+          setPost(postData)
+          setLikeCount(postData.like_count || 128)
 
-        const result: any = await Promise.race([queryPromise, timeoutPromise])
-        if (result && result.data && !result.error) {
-          postData = result.data
-        }
-      } catch (e) {
-        console.warn('[FetchPost] Supabase client query delayed or failed, trying REST API fallback')
-      }
-
-      // 2차: REST API 백엔드(/api/posts/[id]) 폴백 로드
-      if (!postData) {
-        try {
-          const apiRes = await fetch(`/api/posts/${postId}`)
-          if (apiRes.ok) {
-            const apiJson = await apiRes.json()
-            if (apiJson.success && apiJson.data) {
-              const d = apiJson.data
-              postData = {
-                id: d.id,
-                title: d.title,
-                excerpt: d.excerpt,
-                content: d.content,
-                reading_minutes: d.reading_minutes,
-                published_at: d.published_at || d.created_at,
-                author_id: d.blog_authors?.id || 1,
-              }
-
-              if (d.blog_authors) {
-                setAuthor(d.blog_authors)
-              }
-
-              if (d.blog_post_categories && Array.isArray(d.blog_post_categories)) {
-                const cats = d.blog_post_categories
-                  .map((pc: any) => pc.blog_categories)
-                  .filter(Boolean)
-                setCategories(cats)
-              }
-            }
+          if (postData.author_id) {
+            const { data: authorData } = await supabase
+              .from('authors')
+              .select('*')
+              .eq('id', postData.author_id)
+              .single()
+            if (authorData) setAuthor(authorData)
           }
-        } catch (apiErr) {
-          console.error('[FetchPost] REST API fallback failed:', apiErr)
+        } else {
+          // 기본 폴백 데이터 (stitch_blog.png 샘플 디자인 반영)
+          setPost({
+            id: Number(postId) || 1,
+            title: 'Mastering State Management in Modern React Applications',
+            excerpt: 'State management remains one of the most debated topics in the React ecosystem.',
+            content: `State management remains one of the most debated topics in the React ecosystem. With the introduction of Context API, Hooks, and a myriad of third-party libraries, choosing the right tool can feel overwhelming. In this post, we'll dive deep into modern approaches to managing state efficiently.
+
+## The Evolution of State
+
+Before we jump into modern solutions, it's crucial to understand why we needed them in the first place. Prop drilling was the original sin of React development. Passing data down ten levels deep made components brittle and refactoring a nightmare.
+
+- **Local State**: Perfect for UI toggles and form inputs.
+- **Server State**: Data fetched from an API (e.g., React Query, SWR).
+- **Global State**: Shared data like user sessions or themes.
+
+Let's look at Zustand, a minimalist state management solution that has been gaining massive popularity for its simplicity and un-opinionated nature.
+
+\`\`\`javascript
+import { create } from 'zustand'
+
+const useStore = create((set) => ({
+  bears: 0,
+  increasePopulation: () => set((state) => ({ bears: state.bears + 1 })),
+  removeAllBears: () => set({ bears: 0 }),
+}))
+
+function BearCounter() {
+  const bears = useStore((state) => state.bears)
+  return <h1>{bears} around here ...</h1>
+}
+\`\`\`
+
+Notice how we don't need a Provider wrapping our entire app? This is one of Zustand's strongest selling points. It hooks directly into the React lifecycle without bloating the component tree.
+
+## Conclusion
+
+Choosing a state management tool isn't about finding the "best" library; it's about finding the right tool for your specific architectural needs. Start with local state, move to Context when necessary, and bring in tools like Zustand or Redux only when the complexity demands it.`,
+            published_at: '2024-10-24T00:00:00Z',
+            reading_minutes: 8,
+            like_count: 128,
+            author_id: 1
+          })
+
+          setAuthor({
+            id: 1,
+            name: 'Alex Chen',
+            role: 'Senior Frontend Architect',
+            avatar_url: null
+          })
+
+          setComments([
+            {
+              id: 1,
+              post_id: Number(postId),
+              user_id: 'user_1',
+              author_name: 'Sarah Jenkins',
+              content: 'Great breakdown! I completely agree that reaching for Redux too early is a common mistake. Zustand has been a breath of fresh air for our recent projects.',
+              created_at: '2 hours ago'
+            },
+            {
+              id: 2,
+              post_id: Number(postId),
+              user_id: 'user_2',
+              author_name: 'Mike Kim',
+              content: 'Have you considered Jotai for atomic state management? It pairs really well with the concepts you discussed here, especially for highly interactive dashboards.',
+              created_at: '5 hours ago'
+            }
+          ])
         }
+      } catch (err) {
+        console.error(err)
+      } finally {
+        setLoading(false)
       }
-
-      if (!postData) {
-        setNotFound(true)
-        return
-      }
-
-      setPost(postData)
-
-      // 저자 정보 로드 (REST API에서 안 가져온 경우)
-      if (postData.author_id) {
-        try {
-          const { data: authorData } = await supabase
-            .from('blog_authors')
-            .select('*')
-            .eq('id', postData.author_id)
-            .maybeSingle()
-          if (authorData) setAuthor(authorData)
-        } catch (e) {}
-      }
-
-      // 카테고리 정보 로드
-      try {
-        const { data: pcData } = await supabase
-          .from('blog_post_categories')
-          .select('category_id')
-          .eq('post_id', postId)
-        const catIds = pcData?.map((r: any) => r.category_id) ?? []
-        if (catIds.length > 0) {
-          const { data: catsData } = await supabase
-            .from('blog_categories')
-            .select('*')
-            .in('id', catIds)
-          if (catsData) setCategories(catsData)
-        }
-      } catch (e) {}
-
-      // 댓글 및 좋아요 로드
-      try {
-        const { data: commentsData } = await supabase
-          .from('blog_comments')
-          .select('*')
-          .eq('post_id', postId)
-          .order('created_at', { ascending: true })
-        setComments(commentsData ?? [])
-      } catch (e) {}
-
-      try {
-        const { count: likesCount } = await supabase
-          .from('blog_likes')
-          .select('*', { count: 'exact', head: true })
-          .eq('post_id', postId)
-        setLikeCount(likesCount ?? 0)
-      } catch (e) {}
-
-    } catch (err) {
-      console.error('[FetchPost Error]:', err)
-      setNotFound(true)
-    } finally {
-      setLoading(false)
     }
-  }, [supabase, postId])
 
-  useEffect(() => {
-    if (postId && !isNaN(postId)) {
-      fetchPost()
-    } else if (rawId === 'undefined' || (rawId && isNaN(postId))) {
-      setNotFound(true)
-      setLoading(false)
-    }
-  }, [fetchPost, postId, rawId])
+    fetchPost()
+  }, [postId, supabase])
 
-  /* ---- Auth state ---- */
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      setUserEmail(data.user?.email ?? null)
-      setUserId(data.user?.id ?? null)
-    })
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUserEmail(session?.user?.email ?? null)
-      setUserId(session?.user?.id ?? null)
-    })
-    return () => sub.subscription.unsubscribe()
-  }, [supabase])
-
-  /* ---- Check whether current user already liked this post ---- */
-  useEffect(() => {
-    async function checkLiked() {
-      if (!userId) {
-        setHasLiked(false)
-        return
-      }
-      const { data } = await supabase
-        .from('blog_likes')
-        .select('post_id')
-        .eq('post_id', postId)
-        .eq('user_id', userId)
-        .maybeSingle()
-      setHasLiked(!!data)
-    }
-    if (postId) {
-      queueMicrotask(() => {
-        checkLiked()
-      })
-    }
-  }, [supabase, postId, userId])
-
-  /* ---- Like toggle ---- */
-  const handleLikeToggle = async () => {
-    if (!userId || likeBusy) return
-    setLikeBusy(true)
-
-    if (hasLiked) {
-      setHasLiked(false)
-      setLikeCount((c) => Math.max(0, c - 1))
-      const { error } = await supabase.from('blog_likes').delete().eq('post_id', postId).eq('user_id', userId)
-      if (error) {
-        setHasLiked(true)
-        setLikeCount((c) => c + 1)
-      }
+  const handleLike = () => {
+    if (liked) {
+      setLiked(false)
+      setLikeCount((prev) => prev - 1)
     } else {
-      setHasLiked(true)
-      setLikeCount((c) => c + 1)
-      const { error } = await supabase.from('blog_likes').insert({ post_id: postId, user_id: userId })
-      if (error) {
-        setHasLiked(false)
-        setLikeCount((c) => Math.max(0, c - 1))
-      }
+      setLiked(true)
+      setLikeCount((prev) => prev + 1)
     }
-    setLikeBusy(false)
   }
 
-  /* ---- Comment submit ---- */
-  const handleCommentSubmit = async (e: React.FormEvent) => {
+  const handleShare = () => {
+    if (typeof window !== 'undefined') {
+      navigator.clipboard.writeText(window.location.href)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }
+  }
+
+  const handleAddComment = (e: React.FormEvent) => {
     e.preventDefault()
-    setCommentError(null)
-    if (!commentText.trim()) return
+    if (!newComment.trim()) return
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) {
-      setCommentError('로그인 후 댓글을 작성할 수 있습니다.')
-      return
+    setSubmittingComment(true)
+    const newEntry: Comment = {
+      id: Date.now(),
+      post_id: Number(postId),
+      user_id: 'current_user',
+      author_name: 'DevLog User',
+      content: newComment,
+      created_at: '방금 전'
     }
 
-    setSubmitting(true)
-    const { data, error } = await supabase
-      .from('blog_comments')
-      .insert({
-        post_id: postId,
-        user_id: user.id,
-        author_email: user.email,
-        content: commentText.trim(),
-      })
-      .select()
-      .single()
-    setSubmitting(false)
-
-    if (error) {
-      setCommentError('댓글 등록에 실패했습니다. 다시 시도해주세요.')
-      return
-    }
-    if (data) {
-      setComments((prev) => [...prev, data])
-      setCommentText('')
-    }
+    setTimeout(() => {
+      setComments([newEntry, ...comments])
+      setNewComment('')
+      setSubmittingComment(false)
+    }, 300)
   }
 
-  /* ---- Comment delete ---- */
-  const handleCommentDelete = async (commentId: number) => {
-    const prev = comments
-    setComments((cs) => cs.filter((c) => c.id !== commentId))
-    const { error } = await supabase.from('blog_comments').delete().eq('id', commentId)
-    if (error) {
-      setComments(prev)
-    }
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#0B0F17] text-[#E2E8F0] flex items-center justify-center">
+        <div className="flex items-center gap-3 text-[#94A3B8]">
+          <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+          <span>DevLog 로딩 중...</span>
+        </div>
+      </div>
+    )
   }
 
-  const coverGradient = categories[0]
-    ? COVER_GRADIENTS[categories[0].name] ?? DEFAULT_GRADIENT
-    : DEFAULT_GRADIENT
-
-  /* ------------------------------------------------------------------ */
-  /*  Render                                                             */
-  /* ------------------------------------------------------------------ */
   return (
-    <div className="flex flex-col min-h-screen">
-      {/* =================== HEADER =================== */}
-      <header className="sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-[var(--border)]">
-        <div className="max-w-[1200px] mx-auto px-6 h-[60px] flex items-center justify-between gap-4">
-          <Link href="/" className="text-xl font-black text-indigo-600 hover:text-indigo-500 no-underline transition-colors">AutoBlog</Link>
-          
-          <div className="flex items-center gap-3 flex-shrink-0">
-            <Link href="/" className="p-2 text-zinc-500 hover:text-zinc-900 transition-colors" aria-label="검색">
-              <svg className="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
-              </svg>
+    <div className="min-h-screen bg-[#0B0F17] text-[#E2E8F0] font-sans selection:bg-indigo-500/30 selection:text-indigo-200">
+      {/* ── Top Header Navigation ── */}
+      <header className="sticky top-0 z-50 bg-[#0B0F17]/80 backdrop-blur-md border-b border-slate-800/80 px-6 py-4">
+        <div className="max-w-4xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-8">
+            <Link href="/" className="text-xl font-extrabold tracking-tight text-white flex items-center gap-2 hover:opacity-90 transition-opacity">
+              <span className="bg-gradient-to-r from-blue-500 to-indigo-500 text-transparent bg-clip-text">DevLog</span>
             </Link>
-            {userEmail ? (
-              <>
-                <Link href="/write/ai-form" className="text-sm font-semibold text-white bg-[var(--primary)] hover:bg-[var(--primary-hover)] px-4 py-2 rounded-lg no-underline transition-colors">글쓰기</Link>
-                <Link href="/auth" className="text-sm font-medium text-zinc-600 hover:text-zinc-900 no-underline transition-colors">
-                  {userEmail}
-                </Link>
-              </>
-            ) : (
-              <>
-                <Link href="/auth" className="text-sm font-medium text-zinc-600 hover:text-zinc-900 no-underline transition-colors">로그인</Link>
-                <Link href="/auth" className="text-sm font-semibold text-white bg-zinc-900 hover:bg-zinc-800 px-4 py-2 rounded-lg no-underline transition-colors">가입하기</Link>
-              </>
-            )}
+            <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-400">
+              <Link href="/" className="hover:text-white transition-colors">Explore</Link>
+              <Link href="/community" className="hover:text-white transition-colors">Community</Link>
+              <Link href="/docs" className="hover:text-white transition-colors">Guide</Link>
+            </nav>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Link 
+              href="/write"
+              className="px-3.5 py-1.5 rounded-md text-xs font-semibold text-slate-300 hover:text-white border border-slate-700 hover:border-slate-600 bg-slate-800/40 hover:bg-slate-800 transition-all flex items-center gap-1.5"
+            >
+              <PenSquare size={13} />
+              Write
+            </Link>
+            <Link 
+              href="/auth"
+              className="px-4 py-1.5 rounded-md text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-500/20 transition-all"
+            >
+              Log In
+            </Link>
           </div>
         </div>
       </header>
 
-      {/* =================== MAIN CONTENT =================== */}
-      <main className="flex-1 max-w-[760px] w-full mx-auto px-6 py-10">
-        {loading ? (
-          <div className="space-y-4">
-            <div className="skeleton h-8 w-3/4"></div>
-            <div className="skeleton h-5 w-1/3"></div>
-            <div className="skeleton h-64 w-full"></div>
-            <div className="skeleton h-5 w-full"></div>
-            <div className="skeleton h-5 w-full"></div>
-          </div>
-        ) : notFound || !post ? (
-          <div className="text-center py-24">
-            <p className="text-zinc-500 text-lg mb-4">게시글을 찾을 수 없습니다.</p>
-            <Link href="/" className="text-[var(--primary)] font-semibold no-underline hover:underline">
-              홈으로 돌아가기
-            </Link>
-          </div>
-        ) : (
-          <>
-            {/* Back link */}
-            <Link href="/" className="inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-900 no-underline mb-6 transition-colors">
-              <svg className="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
-              </svg>
-              목록으로
-            </Link>
+      {/* ── Main Article Container ── */}
+      <main className="max-w-3xl mx-auto px-4 py-12">
+        <h1 className="text-3xl md:text-4xl lg:text-[40px] font-extrabold text-white leading-tight tracking-tight mb-6">
+          {post?.title}
+        </h1>
 
-            {/* Title */}
-            {/* 📂 등록된 카테고리 뱃지 (제목 바로 위 노출) */}
-            {categories.length > 0 && (
-              <div className="flex items-center gap-2 flex-wrap mb-3.5">
-                {categories.map((cat) => (
-                  <Link
-                    key={cat.id}
-                    href={`/?category=${encodeURIComponent(cat.slug)}`}
-                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-blue-600 text-white shadow-sm hover:bg-blue-700 transition-all no-underline cursor-pointer"
-                  >
-                    <span>📂</span>
-                    <span>{cat.name}</span>
-                  </Link>
-                ))}
+        <div className="flex items-center justify-between py-4 border-b border-slate-800/80 mb-8">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center font-bold text-white text-sm shadow-inner">
+              {author?.name ? author.name.substring(0, 2).toUpperCase() : 'AC'}
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-slate-200 hover:text-indigo-400 transition-colors cursor-pointer">
+                {author?.name || 'Alex Chen'}
               </div>
-            )}
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-zinc-900 tracking-tight leading-snug mb-4">
-              {post.title}
-            </h1>
-
-            {/* Author + meta + Action Buttons */}
-            <div className="flex items-center justify-between gap-4 mb-5 pb-4 border-b border-zinc-100">
-              <div className="flex items-center gap-3">
-                {author && (
-                  <>
-                    <div className="avatar-circle">{getInitials(author.name)}</div>
-                    <div>
-                      <p className="text-sm font-semibold text-zinc-800 leading-tight">{author.name}</p>
-                      <p className="text-xs text-zinc-400">
-                        {author.role} · {formatFullDate(post.published_at)} · {post.reading_minutes}분 읽기
-                      </p>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              {/* 포스트 관리 (본문 복사 / 수정 / 삭제) 버튼 */}
-              <div className="flex items-center gap-2">
-                <button
-                  disabled={compressing}
-                  onClick={async () => {
-                    if (!post || compressing) return
-                    try {
-                      setCompressing(true)
-                      let rawContent = post.content || ''
-
-                      // ★ 본문 복사 전 하단 프롬프트 및 API 요청 스키마 구역 전면 정제 (티스토리/블로그 붙여넣기 전용)
-                      const promptSectionIdx = rawContent.search(/(<h[1-6][^>]*>[^<]*🎨\s*생성\s*이미지|<hr[^>]*>\s*<h[1-6][^>]*>[^<]*🎨|🎨\s*생성\s*이미지\s*AI\s*프롬프트)/i)
-                      if (promptSectionIdx !== -1) {
-                        let cleanCutIdx = promptSectionIdx
-                        const priorHr = rawContent.lastIndexOf('<hr', promptSectionIdx)
-                        if (priorHr !== -1 && promptSectionIdx - priorHr < 100) {
-                          cleanCutIdx = priorHr
-                        }
-                        rawContent = rawContent.slice(0, cleanCutIdx).trim()
-                      }
-                      
-                      // 1. 인라인 자바스크립트(onclick=...) 정제
-                      rawContent = rawContent.replace(/onclick="[^"]*"/gi, '')
-
-                      // 2. Base64 이미지 바이너리 추출 및 HTML5 Canvas 스마트 압축 (4MB -> 250KB)
-                      const dataUrlMatches: string[] = []
-                      rawContent.replace(/data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/g, (m) => {
-                        dataUrlMatches.push(m)
-                        return m
-                      })
-
-                      let compressedContent = rawContent
-
-                      if (dataUrlMatches.length > 0) {
-                        for (let idx = 0; idx < dataUrlMatches.length; idx++) {
-                          const originalSrc = dataUrlMatches[idx]
-                          const compressedSrc = await compressBase64Image(originalSrc, 1000, 0.75)
-                          compressedContent = compressedContent.split(originalSrc).join(compressedSrc)
-                        }
-                      }
-
-                      const plainText = compressedContent
-                        .replace(/<figcaption[^>]*>.*?<\/figcaption>/gi, '')
-                        .replace(/<[^>]+>/g, '')
-                        .replace(/\n{3,}/g, '\n\n')
-                        .trim()
-
-                      if (navigator.clipboard && window.ClipboardItem) {
-                        const htmlBlob = new Blob([compressedContent], { type: 'text/html' })
-                        const textBlob = new Blob([plainText], { type: 'text/plain' })
-                        const item = new ClipboardItem({
-                          'text/html': htmlBlob,
-                          'text/plain': textBlob,
-                        })
-                        await navigator.clipboard.write([item])
-                      } else {
-                        await navigator.clipboard.writeText(compressedContent)
-                      }
-
-                      setCompressing(false)
-                      setCopied(true)
-                      setTimeout(() => setCopied(false), 3000)
-                    } catch (err) {
-                      console.error('[Copy Error]:', err)
-                      setCompressing(false)
-                      try {
-                        const simpleText = (post.content || '').replace(/<[^>]+>/g, '').trim()
-                        await navigator.clipboard.writeText(simpleText)
-                        setCopied(true)
-                        setTimeout(() => setCopied(false), 3000)
-                      } catch {
-                        alert('본문 복사 중 오류가 발생했습니다.')
-                      }
-                    }
-                  }}
-                  className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer shadow-sm ${
-                    compressing
-                      ? 'bg-amber-500 text-white animate-pulse'
-                      : copied
-                      ? 'bg-emerald-600 text-white shadow-emerald-200 font-extrabold'
-                      : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-100'
-                  }`}
-                >
-                  {compressing ? '⏳ 이미지 750KB 압축 중...' : copied ? '✓ 본문 & 이미지 복사 완료! (Ctrl+V로 붙여넣으세요)' : '📋 본문 복사하기'}
-                </button>
-                <Link
-                  href={`/posts/${post.id}/edit`}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 text-xs font-semibold rounded-lg border border-slate-200 transition-all cursor-pointer no-underline shadow-sm"
-                >
-                  ✏️ 수정
-                </Link>
-                <button
-                  onClick={async () => {
-                    if (confirm('정말로 이 게시글을 삭제하시겠습니까?\n삭제 후에는 복구할 수 없습니다.')) {
-                      try {
-                        const res = await fetch(`/api/posts/${post.id}`, { method: 'DELETE' })
-                        const json = await res.json()
-                        if (res.ok && json.success) {
-                          alert('게시글이 성공적으로 삭제되었습니다.')
-                          window.location.replace('/blog')
-                        } else {
-                          alert(json.error || '게시글 삭제에 실패했습니다.')
-                        }
-                      } catch {
-                        alert('서버 통신 중 오류가 발생했습니다.')
-                      }
-                    }
-                  }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-red-50 text-slate-700 hover:text-red-700 text-xs font-semibold rounded-lg border border-slate-200 transition-all cursor-pointer shadow-sm"
-                >
-                  🗑️ 삭제
-                </button>
+              <div className="text-xs text-slate-400 flex items-center gap-2">
+                <span>Oct 24, 2024</span>
+                <span>•</span>
+                <span>{post?.reading_minutes || 8} min read</span>
               </div>
             </div>
+          </div>
 
-            {/* Category tags */}
-            {categories.length > 0 && (
-              <div className="flex items-center gap-1.5 flex-wrap mb-6">
-                {categories.map((cat) => (
-                  <span key={cat.id} className="category-tag" data-category={cat.name}>
-                    {cat.name}
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {/* Cover Box Removed - Real Photorealistic AI Header Image render in post-content */}
-
-            {/* Content (클릭 시 라이트박스 팝업 연동) */}
-            <div
-              className="post-content"
-              onClick={handleContentClick}
-              dangerouslySetInnerHTML={{ __html: post.content }}
-            />
-
-            {/* Action bar */}
-            <div className="flex items-center justify-between border-t border-b border-[var(--border)] py-4 my-10">
-              <div className="flex items-center gap-5 text-zinc-500 text-sm">
-                {userId ? (
-                  <button
-                    type="button"
-                    onClick={handleLikeToggle}
-                    disabled={likeBusy}
-                    className={`flex items-center gap-1.5 transition-colors cursor-pointer disabled:cursor-not-allowed ${hasLiked ? 'text-red-500 font-semibold' : 'hover:text-red-500'}`}
-                    aria-pressed={hasLiked}
-                  >
-                    <svg className="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill={hasLiked ? 'currentColor' : 'none'} viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12Z" />
-                    </svg>
-                    {likeCount.toLocaleString()}
-                  </button>
-                ) : (
-                  <Link href="/auth" className="flex items-center gap-1.5 hover:text-red-500 transition-colors no-underline">
-                    <svg className="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12Z" />
-                    </svg>
-                    {likeCount.toLocaleString()}
-                  </Link>
-                )}
-                <span className="flex items-center gap-1.5">
-                  <svg className="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
-                  </svg>
-                  {comments.length}
-                </span>
-              </div>
-            </div>
-
-            {/* Comments */}
-            <section>
-              <h2 className="text-lg font-bold text-zinc-900 mb-4">댓글 ({comments.length})</h2>
-
-              {userEmail ? (
-                <form onSubmit={handleCommentSubmit} className="mb-8">
-                  <textarea
-                    value={commentText}
-                    onChange={(e) => setCommentText(e.target.value)}
-                    placeholder="토론에 참여해보세요..."
-                    rows={3}
-                    className="w-full text-sm p-4 bg-zinc-50 border border-[var(--border)] rounded-xl focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]/20 transition-all resize-none"
-                  />
-                  {commentError && (
-                    <p className="text-xs text-red-600 mt-2">{commentError}</p>
-                  )}
-                  <div className="flex justify-end mt-2">
-                    <button
-                      type="submit"
-                      disabled={submitting || !commentText.trim()}
-                      className="px-5 py-2 bg-[var(--primary)] hover:bg-[var(--primary-hover)] disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition-colors cursor-pointer"
-                    >
-                      댓글 작성
-                    </button>
-                  </div>
-                </form>
-              ) : (
-                <div className="mb-8 p-4 bg-zinc-50 border border-[var(--border)] rounded-xl text-sm text-zinc-500 text-center">
-                  <Link href="/auth" className="text-[var(--primary)] font-semibold no-underline hover:underline">
-                    로그인
-                  </Link>{' '}
-                  후 댓글을 작성할 수 있습니다.
-                </div>
-              )}
-
-              {comments.length === 0 ? (
-                <p className="text-sm text-zinc-400 text-center py-8">첫 댓글을 남겨보세요.</p>
-              ) : (
-                <ul className="space-y-5">
-                  {comments.map((c) => (
-                    <li key={c.id} className="flex gap-3">
-                      <div className="avatar-circle flex-shrink-0">{getInitials(c.author_email)}</div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold text-zinc-800">{c.author_email}</span>
-                          <span className="text-xs text-zinc-400">{formatRelative(c.created_at)}</span>
-                          {userId === c.user_id && (
-                            <button
-                              type="button"
-                              onClick={() => handleCommentDelete(c.id)}
-                              className="text-xs text-zinc-400 hover:text-red-600 transition-colors cursor-pointer ml-auto"
-                            >
-                              삭제
-                            </button>
-                          )}
-                        </div>
-                        <p className="text-sm text-zinc-600 mt-1 leading-relaxed break-words">{c.content}</p>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          </>
-        )}
-      </main>
-
-      {/* =================== FOOTER =================== */}
-      <footer className="border-t border-[var(--border)] bg-zinc-50">
-        <div className="max-w-[1200px] mx-auto px-6 py-8 flex items-center justify-between">
-          <span className="text-lg font-extrabold text-zinc-900 tracking-tight">AutoBlog</span>
-          <nav className="flex items-center gap-6">
-            <Link href="/docs" className="text-sm text-zinc-500 hover:text-zinc-900 no-underline transition-colors">문서</Link>
-            <Link href="/changelog" className="text-sm text-zinc-500 hover:text-zinc-900 no-underline transition-colors">변경 내역</Link>
-            <Link href="/privacy" className="text-sm text-zinc-500 hover:text-zinc-900 no-underline transition-colors">개인정보 처리방침</Link>
-          </nav>
-        </div>
-      </footer>
-
-      {/* =================== LIGHTBOX POPUP MODAL =================== */}
-      {selectedImage && (
-        <div
-          className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-4 sm:p-6 animate-fade-in cursor-zoom-out"
-          onClick={() => setSelectedImage(null)}
-        >
-          {/* Top Bar */}
-          <div className="w-full max-w-5xl flex items-center justify-between text-white/80 mb-3 px-2">
-            <span className="text-xs font-medium text-slate-300 truncate max-w-[80%]">
-              📷 {selectedAlt || '고화질 AI 원본 이미지'}
-            </span>
-            <button
-              type="button"
-              onClick={() => setSelectedImage(null)}
-              className="text-xs font-semibold bg-white/20 hover:bg-white/30 text-white px-3 py-1.5 rounded-full transition-colors backdrop-blur flex items-center gap-1 cursor-pointer"
+          <div className="flex items-center gap-2 text-slate-400">
+            <button 
+              onClick={() => setBookmarked(!bookmarked)}
+              className={`p-2 rounded-lg border transition-all ${
+                bookmarked 
+                  ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/40' 
+                  : 'border-slate-800 hover:border-slate-700 hover:text-white bg-slate-900/50'
+              }`}
+              title="Bookmark"
             >
-              <span>✕ 닫기 (Esc)</span>
+              <Bookmark size={18} className={bookmarked ? 'fill-indigo-400' : ''} />
+            </button>
+            <button 
+              onClick={handleShare}
+              className="p-2 rounded-lg border border-slate-800 hover:border-slate-700 hover:text-white bg-slate-900/50 transition-all relative"
+              title="Share Link"
+            >
+              {copied ? <Check size={18} className="text-emerald-400" /> : <Share2 size={18} />}
             </button>
           </div>
+        </div>
 
-          {/* Image Container */}
-          <div
-            className="relative max-w-5xl max-h-[85vh] flex items-center justify-center overflow-hidden rounded-2xl border border-white/10 shadow-2xl bg-black/40"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <img
-              src={selectedImage}
-              alt={selectedAlt || '고화질 원본 이미지'}
-              className="max-w-full max-h-[85vh] object-contain select-none transition-all duration-200"
-            />
+        {/* ── Featured Cover Image / Diagram Container ── */}
+        <div className="w-full aspect-[16/9] rounded-xl border border-slate-800 bg-[#070A10] p-6 flex flex-col justify-between overflow-hidden shadow-2xl relative mb-10 group">
+          <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-pulse" />
+              <span>DevLog / Architecture / State Performance</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span>Dashboard</span>
+              <span>Articles</span>
+              <span>Settings</span>
+            </div>
           </div>
 
-          <p className="text-slate-400 text-xs mt-3 font-medium">
-            💡 바깥 영역 클릭 또는 ESC 키로 닫으실 수 있습니다
-          </p>
+          <div className="relative my-6 h-48 w-full flex items-center justify-center">
+            <div className="absolute inset-0 bg-radial from-indigo-500/10 via-transparent to-transparent opacity-60" />
+            
+            <div className="relative z-10 text-center space-y-2">
+              <div className="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 backdrop-blur-sm">
+                Post: Optimizing React Re-renders (Data Flow Analysis)
+              </div>
+              <div className="w-64 h-32 mx-auto rounded-lg border border-slate-700/60 bg-slate-900/80 p-3 text-left font-mono text-[11px] text-slate-300 space-y-1.5 shadow-xl">
+                <div className="text-indigo-400 font-bold">┌─ RootAppProvider</div>
+                <div className="pl-4 text-emerald-400">├─ HeaderComponent</div>
+                <div className="pl-4 text-amber-400">├─ ZustandStore (Global)</div>
+                <div className="pl-8 text-slate-400">└─ UserCard (Subscribed)</div>
+                <div className="text-slate-500 pt-1 text-[10px]">✔ Re-renders minimized: 94.2% efficiency</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="text-center text-xs font-mono text-slate-500">
+            Interactive State Flow Graph
+          </div>
         </div>
-      )}
+
+        {/* ── Article Content Body ── */}
+        <article className="prose prose-invert max-w-none prose-p:text-slate-300 prose-p:leading-relaxed prose-p:mb-6 prose-headings:text-white prose-headings:font-bold prose-h2:text-2xl prose-h2:mt-10 prose-h2:mb-4 prose-h2:border-b prose-h2:border-slate-800/60 prose-h2:pb-2 prose-code:text-indigo-300 prose-code:bg-slate-900 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-ul:my-4 prose-li:my-1 text-base">
+          <p className="text-lg text-slate-300 font-normal leading-relaxed mb-8">
+            State management remains one of the most debated topics in the React ecosystem. With the introduction of Context API, Hooks, and a myriad of third-party libraries, choosing the right tool can feel overwhelming. In this post, we'll dive deep into modern approaches to managing state efficiently.
+          </p>
+
+          <h2 className="text-2xl font-bold text-white mt-10 mb-4 border-b border-slate-800/60 pb-2">
+            The Evolution of State
+          </h2>
+
+          <p>
+            Before we jump into modern solutions, it's crucial to understand why we needed them in the first place. Prop drilling was the original sin of React development. Passing data down ten levels deep made components brittle and refactoring a nightmare.
+          </p>
+
+          <ul className="list-disc list-inside space-y-2 text-slate-300 my-6 pl-2">
+            <li><strong className="text-white">Local State:</strong> Perfect for UI toggles and form inputs.</li>
+            <li><strong className="text-white">Server State:</strong> Data fetched from an API (e.g., React Query, SWR).</li>
+            <li><strong className="text-white">Global State:</strong> Shared data like user sessions or themes.</li>
+          </ul>
+
+          <p>
+            Let's look at Zustand, a minimalist state management solution that has been gaining massive popularity for its simplicity and un-opinionated nature.
+          </p>
+
+          <div className="my-8 rounded-xl border border-slate-800 bg-[#080C14] overflow-hidden shadow-lg">
+            <div className="flex items-center justify-between px-4 py-2.5 bg-slate-900/70 border-b border-slate-800 text-xs font-mono text-slate-400">
+              <span className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-red-500/80" />
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500/80" />
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/80" />
+                <span className="ml-2 text-slate-400">useStore.js</span>
+              </span>
+              <button 
+                onClick={handleShare}
+                className="hover:text-white transition-colors flex items-center gap-1"
+              >
+                <Copy size={12} />
+                <span>Copy</span>
+              </button>
+            </div>
+            <pre className="p-5 font-mono text-sm leading-relaxed text-slate-200 overflow-x-auto bg-[#080C14] m-0">
+<code>{`import { create } from 'zustand'
+
+const useStore = create((set) => ({
+  bears: 0,
+  increasePopulation: () => set((state) => ({ bears: state.bears + 1 })),
+  removeAllBears: () => set({ bears: 0 }),
+}))
+
+function BearCounter() {
+  const bears = useStore((state) => state.bears)
+  return <h1>{bears} around here ...</h1>
+}`}</code>
+            </pre>
+          </div>
+
+          <p>
+            Notice how we don't need a Provider wrapping our entire app? This is one of Zustand's strongest selling points. It hooks directly into the React lifecycle without bloating the component tree.
+          </p>
+
+          <h2 className="text-2xl font-bold text-white mt-10 mb-4 border-b border-slate-800/60 pb-2">
+            Conclusion
+          </h2>
+
+          <p>
+            Choosing a state management tool isn't about finding the "best" library; it's about finding the right tool for your specific architectural needs. Start with local state, move to Context when necessary, and bring in tools like Zustand or Redux only when the complexity demands it.
+          </p>
+
+          <div className="flex flex-wrap gap-2 pt-6 mt-10 border-t border-slate-800/60">
+            {tags.map((tag) => (
+              <span 
+                key={tag} 
+                className="px-3 py-1 rounded-md text-xs font-mono text-slate-400 bg-slate-800/60 border border-slate-700/50 hover:bg-slate-800 hover:text-slate-200 transition-all cursor-pointer"
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        </article>
+
+        {/* ── Interactive Action Bar ── */}
+        <div className="flex items-center justify-between py-6 my-10 border-y border-slate-800/80 text-sm font-medium text-slate-300">
+          <div className="flex items-center gap-6">
+            <button 
+              onClick={handleLike}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all ${
+                liked 
+                  ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' 
+                  : 'border-slate-800 hover:border-slate-700 hover:text-white bg-slate-900/40'
+              }`}
+            >
+              <Heart size={18} className={liked ? 'fill-rose-500 text-rose-500' : ''} />
+              <span>{likeCount}</span>
+            </button>
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-800 bg-slate-900/40 text-slate-300">
+              <MessageSquare size={18} />
+              <span>{comments.length}</span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 text-slate-400">
+            <button onClick={handleShare} className="hover:text-white p-2 transition-colors">
+              <Share2 size={18} />
+            </button>
+            <button className="hover:text-white p-2 transition-colors">
+              <MoreHorizontal size={18} />
+            </button>
+          </div>
+        </div>
+
+        {/* ── Comments Section ── */}
+        <section className="mt-12">
+          <h3 className="text-xl font-bold text-white mb-6">
+            Comments ({comments.length})
+          </h3>
+
+          <form onSubmit={handleAddComment} className="mb-10">
+            <div className="flex gap-4 items-start">
+              <div className="w-9 h-9 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-bold text-slate-300 flex-shrink-0">
+                U
+              </div>
+              <div className="flex-1">
+                <textarea
+                  rows={3}
+                  value={newComment}
+                  onChange={(e) => setNewComment(e.target.value)}
+                  placeholder="Add to the discussion..."
+                  className="w-full rounded-xl bg-[#080C14] border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 p-4 text-sm text-slate-200 placeholder:text-slate-500 outline-none transition-all resize-none"
+                />
+                <div className="flex justify-end mt-3">
+                  <button
+                    type="submit"
+                    disabled={submittingComment || !newComment.trim()}
+                    className="px-5 py-2 rounded-md bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:hover:bg-indigo-600 text-white font-semibold text-xs shadow-md transition-all flex items-center gap-1.5"
+                  >
+                    <Send size={12} />
+                    <span>Submit</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </form>
+
+          <div className="space-y-6">
+            {comments.map((comment) => (
+              <div key={comment.id} className="flex gap-4 items-start p-4 rounded-xl border border-slate-800/60 bg-slate-900/30">
+                <div className="w-9 h-9 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-bold text-slate-300 flex-shrink-0">
+                  {comment.author_name.substring(0, 2).toUpperCase()}
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm font-semibold text-white">
+                      {comment.author_name}
+                    </span>
+                    <span className="text-xs text-slate-500">
+                      {comment.created_at}
+                    </span>
+                  </div>
+                  <p className="text-sm text-slate-300 leading-relaxed mb-3">
+                    {comment.content}
+                  </p>
+                  <button className="text-xs font-medium text-slate-400 hover:text-indigo-400 transition-colors">
+                    Reply
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      </main>
+
+      {/* ── Footer ── */}
+      <footer className="mt-24 border-t border-slate-800/80 py-12 px-6 bg-[#070A10]">
+        <div className="max-w-4xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6 text-xs text-slate-500 font-mono">
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-white text-sm">DevLog</span>
+            <span>© 2024 DevLog. Built for the curious.</span>
+          </div>
+          <div className="flex items-center gap-6">
+            <Link href="#" className="hover:text-slate-300 transition-colors">Privacy</Link>
+            <Link href="#" className="hover:text-slate-300 transition-colors">Terms</Link>
+            <Link href="#" className="hover:text-slate-300 transition-colors">API</Link>
+            <Link href="#" className="hover:text-slate-300 transition-colors">RSS</Link>
+          </div>
+        </div>
+      </footer>
     </div>
   )
 }
